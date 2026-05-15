@@ -404,8 +404,13 @@ async def run_optimization_pipeline(
 
     reg_params  = _fit_regression_params(fixture_player_df)
     bonus_model = _fit_bonus_multinomial(raw_history_df)
+    
+    from fpl_engine.scoring import _check_distribution_assumptions
+    dispersion_params = _check_distribution_assumptions(raw_history_df)
+    
     _diagnose_bonus_model(bonus_model)
     params.update(reg_params)
+    params.update(dispersion_params)
 
     fixture_player_df = _calculate_performance_indices(
         fixture_player_df,
