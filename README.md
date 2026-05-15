@@ -10,34 +10,50 @@ An advanced, mathematics-driven Fantasy Premier League (FPL) squad optimizer and
 - **Linear Programming Solver (PuLP)**: Plans up to 6 Gameweeks of transfers. Respects FPL constraints including bank balance, Free Transfer banking (up to 5), Wildcards, Free Hits, and transfer hit penalties.
 - **S-Curve Differential Pricing**: Automatically discounts the transfer cost of low-ownership players to find optimal differential picks when chasing rank.
 
-## 📦 Installation & Setup
+## ⚙️ Parameter Tuning & Optimization
+
+The system includes an automated tuning layer (`fpl_tuner.py`) that uses **Optuna** to fine-tune model weights (e.g., fixture difficulty vs. form).
+
+### Initialization from Notebook
+To initialize or manually trigger a re-tune from the `FPL_Dashboard.ipynb`:
+```python
+from fpl_tuner import FPLTuningOrchestrator
+
+# Initialize orchestrator
+tuner = FPLTuningOrchestrator(workspace_path="./")
+
+# Run tuning (automated check for 7-day staleness or drift)
+tuner.run(force=False)
+
+# Manual override trigger
+tuner.run(force=True)
+```
+
+### Manual Trigger Function Signatures
+- `FPLTuningOrchestrator.run(force: bool = False)`:
+  - `force=False` (Default): Only triggers if parameters are > 7 days old or statistical drift is detected.
+  - `force=True`: Bypasses all checks and executes a fresh parallelized optimization study.
+
+## 🛠️ Installation & Setup
 
 1. **Clone the repository** (if applicable).
 2. **Create a Python Virtual Environment**:
    ```bash
-   python3 -m venv .venv
+   python -m venv .venv
    source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
    ```
 3. **Install Dependencies**:
    ```bash
    pip install -r requirements.txt
+   pip install pytest  # For running tests
    ```
-   Open `FPL_Dashboard.ipynb` in Google Colab or your preferred Jupyter environment (VS Code, JupyterLab). If running locally, select the `.venv` kernel.
+   Open `FPL_Dashboard.ipynb` in your preferred environment. Select the `.venv` kernel.
 
-## ⚙️ How It Works
+## 📉 Diagnostics & Logging
+Long-running optimization tasks are tracked in `logs/`:
+- `optimization_metrics.log`: Trial results and parameter shifts.
+- `tuning_errors.log`: Failures and edge case reports.
+- `state_transitions.log`: History of manual vs. automated updates.
 
-The optimization pipeline flows through the `fpl_engine` package:
-1. **`data.py` (API Ingestion)**: Fetches `bootstrap-static`, `fixtures`, and `element-summary` endpoints.
-2. **`features.py` (Feature Engineering)**: Normalizes raw stats into per-90 rates and strips away opponent difficulty.
-3. **`scoring.py` (Expected Value Engine)**: Calculates `Perf_IDX` (expected points) based on Poisson models and a Multinomial Logistic Regression model for Bonus Points.
-4. **`solver.py` (Solver Execution)**: Passes the projections to the `plan_sequential_transfers` LP function to find the mathematically optimal series of transfers.
-
-## ⚠️ Known FPL API Quirks
-The official FPL `bootstrap-static` API incorrectly swaps home and away team strengths (see `FPL_API_QUIRKS.md` for details). The codebase intentionally intercepts and swaps these values back to maintain mathematical integrity. Do not "fix" this inversion in the code unless FPL officially updates their API.
-
-## 🛠 Tech Stack
-- **Data Manipulation**: `pandas`, `numpy`
-- **Statistical Modeling**: `scipy`, `scikit-learn`
-- **Optimization**: `pulp` (CBC/GLPK solvers)
-- **Hyperparameter Tuning**: `optuna`
-- **Caching**: `fastparquet` / `pyarrow`
+## 🏗️ Architecture
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed data flow and persistence mapping.
