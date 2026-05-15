@@ -250,7 +250,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
             patience=1
         )
         study = optuna.create_study(direction='minimize', pruner=pruner_p1)
-        study.optimize(objective_minutes, n_trials=n_trials, n_jobs=1, show_progress_bar=True, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15, direction='minimize')])
+        study.optimize(objective_minutes, n_trials=n_trials, n_jobs=1, show_progress_bar=True, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
         best = get_averaged_production_params(study, top_k=5, primary_metric_idx=0, maximize_primary=False)
         return {k: round(round(v / 0.005) * 0.005, 3) for k, v in best.items()} if best else {}
 
