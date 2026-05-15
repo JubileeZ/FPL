@@ -68,10 +68,11 @@ def mock_get_fixture_df():
     f1['opp_difficulty'] = 3
     f1['team_h'] = np.where(f1['was_home'], f1['team'], f1['opponent'])
     f1['team_a'] = np.where(f1['was_home'], f1['opponent'], f1['team'])
+    f1['is_home'] = f1['was_home']
     
     f2 = pd.DataFrame({
         'id_fixture': [9999], 'gameweek': [37], 'kickoff_time': ['2026-05-20T12:00:00Z'],
-        'team': [1], 'opponent': [2], 'was_home': [True],
+        'team': [1], 'opponent': [2], 'was_home': [True], 'is_home': [True],
         'finished': [False], 'team_difficulty': [3], 'opp_difficulty': [3],
         'team_h': [1], 'team_a': [2]
     })

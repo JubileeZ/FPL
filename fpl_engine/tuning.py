@@ -193,7 +193,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
                 'minutes_ema_alpha':        trial.suggest_float('minutes_ema_alpha',        0.20, 0.95),
                 'minutes_loyalty_w':        trial.suggest_float('minutes_loyalty_w',        0.40, 0.95),
                 'minutes_trend_scale':      trial.suggest_float('minutes_trend_scale',      0.10, 1.20),
-                'minutes_high_streak':      trial.suggest_int('minutes_high_streak',        2.00, 6.00),
+                'minutes_high_streak':      trial.suggest_float('minutes_high_streak',      2.00, 6.00),
                 'minutes_low_vol_thresh':   trial.suggest_float('minutes_low_vol_thresh',   5.00, 45.0),
             })
             params = validate_and_fill_params(params, PARAM_CONTRACT, silent=True)
@@ -221,15 +221,17 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
                 if len(chunk_eval) == 0:
                     continue
 
+                y_true_mins = chunk_eval['actual_minutes'].values
+                y_pred_mins = chunk_eval['minutes_IDX'].values
+                
+                # Cap rest game penalties instead of downweighting the whole sample
+                rest_mask = (y_true_mins == 0) & (chunk_eval['start_per_gameplayed'] > 0.80).values & (chunk_eval['minutes_per_game'] > 75).values
+                y_pred_capped = np.where(rest_mask, np.minimum(y_pred_mins, 30), y_pred_mins)
+
                 loss = minutes_composite_loss(
-                    chunk_eval['actual_minutes'].values,
-                    chunk_eval['minutes_IDX'].values,
-                    sample_weight=np.where(
-                        (chunk_eval['actual_minutes'] == 0)
-                        & (chunk_eval['start_per_gameplayed'] > 0.80)
-                        & (chunk_eval['minutes_per_game'] > 75),
-                        0.3, 1.0
-                    )
+                    y_true_mins,
+                    y_pred_capped,
+                    sample_weight=np.ones_like(y_true_mins, dtype=float)
                 )
                 trial.report(loss, step)
                 last_loss = loss
@@ -254,7 +256,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
     def objective_alphas(trial):
         params = {**BASE_CONSTANTS, **best_minutes_v1}
         params.update({
-            'recency_ema_alpha' : trial.suggest_float('recency_ema_alpha', 0.00, 0.40),
+            'recency_ema_alpha' : trial.suggest_float('recency_ema_alpha', 0.01, 0.40),
             'rolling_ema_alpha' : trial.suggest_float('rolling_ema_alpha', 0.05, 0.40),
         })
         params = validate_and_fill_params(params, PARAM_CONTRACT, silent=True)
@@ -334,7 +336,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
         params.update({
             'c_finish':       trial.suggest_float('c_finish',       0.5,  15.0),
             'c_protect':      trial.suggest_float('c_protect',      0.5,  15.0),
-            'c_base_defense': trial.suggest_float('c_base_defense', 8.0,  50.0),
+            'c_base_defense': trial.suggest_float('c_base_defense', 0.5,  50.0),
         })
         params = validate_and_fill_params(params, PARAM_CONTRACT, silent=True)
 

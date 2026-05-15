@@ -1,0 +1,5 @@
+=== FPL ENGINE STATISTICAL TEST SUITE ===
+[PASS] test_skellam_parameterization_hybrid_fallback
+[PASS] test_calculate_overall_score_return_type
+[PASS] test_scenario_tensor_independence (corr=0.0203)
+[PASS] test_minutes_composite_loss_rest_penalty

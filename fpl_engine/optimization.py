@@ -4,7 +4,8 @@ import time
 from datetime import datetime
 import optuna
 from tqdm.auto import tqdm
-from scipy.stats import skellam
+from scipy.stats import skellam, norm
+from sklearn.metrics import ndcg_score
 from fpl_engine.config import load_tuned_params, get_advanced_model_config
 from fpl_engine.scoring import (
     _calculate_performance_indices, 
@@ -45,17 +46,19 @@ def evaluate_fpl_duel_discrete(df, player_a_id, player_b_id, elo_win, elo_loss):
     mu_diff = mu_a - mu_b
     var_diff = var_a + var_b
 
-    # Skellam parameters
-    if var_diff <= abs(mu_diff):
-        var_diff = abs(mu_diff) + 1.0
+    # Skellam parameters with hybrid Normal fallback for degenerate cases
+    if var_diff <= abs(mu_diff) * 1.5:
+        p_win  = norm.sf(0, loc=mu_diff, scale=np.sqrt(var_diff))
+        p_loss = norm.cdf(0, loc=mu_diff, scale=np.sqrt(var_diff))
+        p_draw = 0.0  # Continuous distribution
+    else:
+        skellam_mu1 = (var_diff + mu_diff) / 2
+        skellam_mu2 = (var_diff - mu_diff) / 2
 
-    skellam_mu1 = (var_diff + mu_diff) / 2
-    skellam_mu2 = (var_diff - mu_diff) / 2
-
-    # Calculate exact discrete probabilities
-    p_draw = skellam.pmf(0, skellam_mu1, skellam_mu2)
-    p_loss = skellam.cdf(-1, skellam_mu1, skellam_mu2)
-    p_win = skellam.sf(0, skellam_mu1, skellam_mu2)
+        # Calculate exact discrete probabilities
+        p_draw = skellam.pmf(0, skellam_mu1, skellam_mu2)
+        p_loss = skellam.cdf(-1, skellam_mu1, skellam_mu2)
+        p_win = skellam.sf(0, skellam_mu1, skellam_mu2)
 
     # Calculate Expected ELO
     expected_elo = (p_win * elo_win) + (p_loss * elo_loss) + (p_draw * elo_draw)
@@ -98,15 +101,26 @@ def generate_all_duels_matrix(df):
     var_diff = duels['variance_A'] + duels['variance_B']
 
     # Ensure variance is strictly greater than the absolute mean difference
-    var_diff = np.where(var_diff <= np.abs(mu_diff), np.abs(mu_diff) + 0.1, var_diff)
-
-    sk_mu1 = (var_diff + mu_diff) / 2
-    sk_mu2 = (var_diff - mu_diff) / 2
+    # Fallback to Normal approximation where Skellam would be degenerate
+    use_normal = var_diff <= np.abs(mu_diff) * 1.5
+    
+    # Calculate Skellam params for safe points
+    safe_var_diff = np.where(use_normal, np.abs(mu_diff) * 1.5 + 0.1, var_diff)
+    sk_mu1 = (safe_var_diff + mu_diff) / 2
+    sk_mu2 = (safe_var_diff - mu_diff) / 2
 
     # 5. Calculate probabilities
-    duels['Win_%'] = skellam.sf(0, sk_mu1, sk_mu2) * 100
-    duels['Draw_%'] = skellam.pmf(0, sk_mu1, sk_mu2) * 100
-    duels['Loss_%'] = skellam.cdf(-1, sk_mu1, sk_mu2) * 100
+    p_win_sk = skellam.sf(0, sk_mu1, sk_mu2)
+    p_draw_sk = skellam.pmf(0, sk_mu1, sk_mu2)
+    p_loss_sk = skellam.cdf(-1, sk_mu1, sk_mu2)
+
+    p_win_norm = norm.sf(0, loc=mu_diff, scale=np.sqrt(var_diff))
+    p_draw_norm = np.zeros_like(mu_diff)
+    p_loss_norm = norm.cdf(0, loc=mu_diff, scale=np.sqrt(var_diff))
+
+    duels['Win_%'] = np.where(use_normal, p_win_norm, p_win_sk) * 100
+    duels['Draw_%'] = np.where(use_normal, p_draw_norm, p_draw_sk) * 100
+    duels['Loss_%'] = np.where(use_normal, p_loss_norm, p_loss_sk) * 100
 
     # Select and format final columns
     final_cols = ['id_player_A','web_name_A','id_player_B', 'web_name_B', 'Win_%', 'Draw_%', 'Loss_%', 'Perf_IDX_A', 'Perf_IDX_B']
@@ -180,7 +194,7 @@ def calculate_overall_score(df, target_col, pred_col, top_k=50):
     clean_df = df[mask].dropna(subset=[target_col, pred_col, 'gameweek']).copy()
 
     if len(clean_df) < 50:
-        return 0.0, 10.0
+        return 0.0
 
     # 1. Global Ranking Quality (Per-GW NDCG)
     ndcg_scores = []
@@ -487,16 +501,6 @@ async def run_optimization_pipeline(
     # --- CELL 65 ---
 
 
-    # Phase 2: Scenario Generation
-    if adv_cfg.get("enable_scenarios"):
-        n_scenarios = adv_cfg.get("scenario_count", 5000)
-        scenario_tensor = generate_scenario_tensor(
-            gw_projection_df=gw_projection_df,
-            component_corr=component_corr if component_corr else {"corr_matrix": np.eye(6)},
-            n_scenarios=n_scenarios
-        )
-        
-        # Collapse scenarios to stats and merge
     # Phase 2: Scenario Generation
     if adv_cfg.get("enable_scenarios"):
         n_scenarios = adv_cfg.get("scenario_count", 5000)

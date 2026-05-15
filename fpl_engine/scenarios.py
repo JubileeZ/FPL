@@ -40,27 +40,27 @@ def generate_scenario_tensor(
         p_ids = gw_df['id_player'].values
         n_rows = len(gw_df)
         
-        # 1. Draw independent standard normals: (n_rows, n_scenarios)
-        z_indep = np.random.normal(0, 1, (n_rows, n_scenarios))
+        # 1. Draw correlated standard normals for the 6 components *per player*
+        # We need (6, n_rows, n_scenarios) standard normals.
+        # This ensures players have independent draws, avoiding 100% squad correlation.
+        base_normals = np.random.normal(0, 1, (6, n_rows, n_scenarios))
         
-        # 2. Draw correlated standard normals for the 6 components
-        # (This is a simplification: we apply the same global correlation structure 
-        # to all players. A more advanced version would use player-specific dists).
-        # For the baseline, we'll draw 6 correlated variables per scenario 
-        # and use their sum's correlation property.
+        # Apply Cholesky decomposition L (shape 6,6) to the components
+        # L @ base_normals => (6, 6) @ (6, n_rows * n_scenarios)
+        base_normals_flat = base_normals.reshape(6, -1)
+        z_corr_comp_flat = L @ base_normals_flat
+        z_corr_comp = z_corr_comp_flat.reshape(6, n_rows, n_scenarios)
         
-        # Draw correlated normals: (6, n_scenarios)
-        z_corr_comp = L @ np.random.normal(0, 1, (6, n_scenarios))
         # The sum of these correlated components has variance: 1^T R 1
         sum_corr_std = np.sqrt(np.sum(R))
         
         # Standardize the correlated sum to have Unit Variance
+        # Shape: (n_rows, n_scenarios)
         z_corr_unit = np.sum(z_corr_comp, axis=0) / sum_corr_std
         
-        # 3. Apply the correlated unit normal to the player's total score mean/std
-        # This forces the global "component correlation" into the total score draws.
+        # 2. Apply the correlated unit normal to the player's total score mean/std
         # Shape: (n_rows, n_scenarios)
-        scenarios = means[:, np.newaxis] + z_corr_unit[np.newaxis, :] * stds[:, np.newaxis]
+        scenarios = means[:, np.newaxis] + z_corr_unit * stds[:, np.newaxis]
         
         # Map back to tensor
         for i, p_id in enumerate(p_ids):

@@ -1,0 +1,9 @@
+{
+    "weights": {
+        "fixture_weight": 1.5,
+        "form_decay": 0.2,
+        "positional_variance": 1.0
+    },
+    "last_updated": "2026-05-15T22:04:49.593701",
+    "version": "1.0.0"
+}
