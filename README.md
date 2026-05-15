@@ -22,16 +22,15 @@ An advanced, mathematics-driven Fantasy Premier League (FPL) squad optimizer and
    ```bash
    pip install -r requirements.txt
    ```
-4. **Launch the Optimizer**:
-   Open `FPL Squad Optimizer Official API V2.ipynb` in your preferred Jupyter environment (VS Code, JupyterLab) and select the `.venv` kernel.
+   Open `FPL_Dashboard.ipynb` in Google Colab or your preferred Jupyter environment (VS Code, JupyterLab). If running locally, select the `.venv` kernel.
 
 ## ⚙️ How It Works
 
-The optimization pipeline flows through several distinct modules:
-1. **API Ingestion**: Fetches `bootstrap-static`, `fixtures`, and `element-summary` endpoints.
-2. **Feature Engineering**: Normalizes raw stats into per-90 rates and strips away opponent difficulty.
-3. **Expected Value Engine**: Calculates `Perf_IDX` (expected points) based on Poisson models for goals/assists/clean sheets and a Multinomial Logistic Regression model for Bonus Points.
-4. **Solver Execution**: Passes the projections to the `plan_sequential_transfers` LP function, which outputs the mathematically optimal series of transfers to maximize total expected points over the horizon.
+The optimization pipeline flows through the `fpl_engine` package:
+1. **`data.py` (API Ingestion)**: Fetches `bootstrap-static`, `fixtures`, and `element-summary` endpoints.
+2. **`features.py` (Feature Engineering)**: Normalizes raw stats into per-90 rates and strips away opponent difficulty.
+3. **`scoring.py` (Expected Value Engine)**: Calculates `Perf_IDX` (expected points) based on Poisson models and a Multinomial Logistic Regression model for Bonus Points.
+4. **`solver.py` (Solver Execution)**: Passes the projections to the `plan_sequential_transfers` LP function to find the mathematically optimal series of transfers.
 
 ## ⚠️ Known FPL API Quirks
 The official FPL `bootstrap-static` API incorrectly swaps home and away team strengths (see `FPL_API_QUIRKS.md` for details). The codebase intentionally intercepts and swaps these values back to maintain mathematical integrity. Do not "fix" this inversion in the code unless FPL officially updates their API.
