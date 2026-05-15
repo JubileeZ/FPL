@@ -142,6 +142,10 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
     print("Starting FPL Engine Parameter Tuning (Extracted from Notebook)...")
     start_time = time.time()
     
+    import warnings
+    from optuna.exceptions import ExperimentalWarning
+    warnings.filterwarnings("ignore", category=ExperimentalWarning)
+    
     PARAM_CONTRACT = current_config['locked_params'].copy()
     PARAM_CONTRACT.update(current_config['adaptive_targets'])
     PARAM_CONTRACT.update(current_config['minutes_targets'])
@@ -246,7 +250,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
             patience=1
         )
         study = optuna.create_study(direction='minimize', pruner=pruner_p1)
-        study.optimize(objective_minutes, n_trials=n_trials, n_jobs=1, show_progress_bar=False, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
+        study.optimize(objective_minutes, n_trials=n_trials, n_jobs=1, show_progress_bar=True, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15, direction='minimize')])
         best = get_averaged_production_params(study, top_k=5, primary_metric_idx=0, maximize_primary=False)
         return {k: round(round(v / 0.005) * 0.005, 3) for k, v in best.items()} if best else {}
 

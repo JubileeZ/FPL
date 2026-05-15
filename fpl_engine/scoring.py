@@ -45,7 +45,7 @@ def _fit_bonus_multinomial(raw_history_df: pd.DataFrame, min_minutes: int = 45) 
 
     # Fit Model
     bonus_model = LogisticRegression()
-    bonus_model.fit(hist[['bps']], hist['bonus'])
+    bonus_model.fit(hist[['bps']].values, hist['bonus'].values)
 
     # [PATCH]: Moved BPS monotonicity validation check BEFORE the return statement
     test_bps = np.array([[10], [20], [30], [40], [50]])
@@ -66,6 +66,7 @@ def fit_bps_calibration(
     estimate_col: str = 'estimate_bps_calibrate',
     actual_col: str = 'actual_avg_bps',
     min_minutes: int = 45,
+    silent: bool = False,
 ) -> dict:
     """
     Fits per-position linear calibration: actual_bps ~ estimate_bps.
@@ -85,8 +86,9 @@ def fit_bps_calibration(
         y = pos_df[actual_col].values
         model = LinearRegression().fit(X, y)
         calibrators[pos] = model
-        print(f"{pos}: scale={model.coef_[0]:.3f}  intercept={model.intercept_:.3f}  "
-              f"R²={model.score(X, y):.3f}  n={len(pos_df)}")
+        if not silent:
+            print(f"{pos}: scale={model.coef_[0]:.3f}  intercept={model.intercept_:.3f}  "
+                  f"R²={model.score(X, y):.3f}  n={len(pos_df)}")
 
     return calibrators
 
@@ -676,6 +678,7 @@ def _calculate_performance_indices(
                 estimate_col='estimate_bps_calibrate',
                 actual_col='actual_avg_bps',
                 min_minutes=45,
+                silent=True,
             )
 
     # Apply calibrators to the forward-looking BPS estimate (estimate_bps).
