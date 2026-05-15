@@ -300,6 +300,11 @@ async def run_optimization_pipeline(
     # Fetch the user's current team IDs for the determined GW
     if GW is not None:
         MY_CURRENT_TEAM_IDS = get_my_player_ids(my_fpl_id, GW)
+        
+        # --- AUTO-TUNE TRIGGER ---
+        # Checks if we need to re-tune hyperparameters based on the current gameweek
+        from fpl_engine.tuning import auto_tune_if_needed
+        await auto_tune_if_needed(GW)
     else:
         MY_CURRENT_TEAM_IDS = []
         print("Cannot fetch team IDs as the current gameweek (GW) is not determined.")
