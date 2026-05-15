@@ -9,6 +9,7 @@ import pickle
 import time
 from datetime import datetime
 from scipy.stats import poisson, norm
+from scipy import stats
 from scipy.optimize import minimize
 import pulp
 from optuna.samplers import GridSampler
@@ -16,9 +17,10 @@ import optuna
 import optunahub
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
 import warnings
 from tqdm.auto import tqdm
+from .visualization import _render_sync_plots
 
 def _fit_regression_params(
     fixture_player_df: pd.DataFrame,

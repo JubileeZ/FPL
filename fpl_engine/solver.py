@@ -19,6 +19,7 @@ from matplotlib.lines import Line2D
 from sklearn.linear_model import LogisticRegression
 import warnings
 from tqdm.auto import tqdm
+from .data import get_current_players_df, get_pos_constraint_df
 
 def _print_gameweek_report(
     t, prob, player_ids, horizon_df, player_details_df, positions,

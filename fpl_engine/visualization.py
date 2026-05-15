@@ -15,6 +15,7 @@ from optuna.samplers import GridSampler
 import optuna
 import optunahub
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 from matplotlib.lines import Line2D
 from sklearn.linear_model import LogisticRegression
 import warnings
