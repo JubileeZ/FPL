@@ -1,6 +1,6 @@
 {
     "last_tuned_gw": 36,
-    "last_tuned_date": "2026-05-15T22:56:35.077517",
+    "last_tuned_date": "2026-05-15T23:19:47.292194",
     "locked_params": {
         "fixture_alpha_att": 0.09,
         "fixture_alpha_def": 0.07,
@@ -12,28 +12,28 @@
         "finishing_factor_clip_upper": 1.69,
         "protective_factor_clip_lower": 0.65,
         "protective_factor_clip_upper": 1.5,
-        "minutes_role_floor": 0.46,
-        "minutes_loyalty_w": 0.685,
-        "minutes_trend_scale": 0.365,
-        "minutes_high_streak": 3.675,
-        "minutes_low_vol_thresh": 34.705,
+        "minutes_role_floor": 0.38,
+        "minutes_loyalty_w": 0.68,
+        "minutes_trend_scale": 0.515,
+        "minutes_high_streak": 5.25,
+        "minutes_low_vol_thresh": 33.13,
         "league_avg_xG": 1.45,
         "league_avg_xGC": 1.45
     },
     "adaptive_targets": {
-        "c_finish": 1.185,
-        "c_protect": 7.115,
-        "c_base_defense": 1.0,
+        "c_finish": 1.735,
+        "c_protect": 4.575,
+        "c_base_defense": 1.96,
         "recency_ema_alpha": 0.045,
-        "rolling_ema_alpha": 0.36,
+        "rolling_ema_alpha": 0.185,
         "fixture_alpha_att": 0.09,
         "fixture_alpha_def": 0.07
     },
     "minutes_targets": {
-        "minutes_w_form": 0.905,
-        "minutes_w_haaland_season": 0.595,
+        "minutes_w_form": 0.87,
+        "minutes_w_haaland_season": 0.6,
         "minutes_w_gk_form": 1.0,
-        "minutes_ema_alpha": 0.78
+        "minutes_ema_alpha": 0.845
     },
     "advanced_model": {
         "enable_covariance_ceiling": true,
