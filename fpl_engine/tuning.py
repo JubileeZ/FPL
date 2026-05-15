@@ -139,6 +139,10 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
         get_averaged_production_params, minutes_composite_loss, calculate_overall_score
     )
     
+    import optunahub
+    _auto_sampler_module = optunahub.load_module(package="samplers/auto_sampler")
+    AutoSampler = _auto_sampler_module.AutoSampler
+
     print("Starting FPL Engine Parameter Tuning (Extracted from Notebook)...")
     start_time = time.time()
     
@@ -249,7 +253,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
             optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=1, interval_steps=1),
             patience=1
         )
-        study = optuna.create_study(direction='minimize', pruner=pruner_p1)
+        study = optuna.create_study(direction='minimize', sampler=AutoSampler(seed=42), pruner=pruner_p1)
         study.optimize(objective_minutes, n_trials=n_trials, n_jobs=1, show_progress_bar=True, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
         best = get_averaged_production_params(study, top_k=5, primary_metric_idx=0, maximize_primary=False)
         return {k: round(round(v / 0.005) * 0.005, 3) for k, v in best.items()} if best else {}
@@ -304,7 +308,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
 
     print("\nPhase 2: Alpha + Recency Optimization...")
     pruner_p2 = optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=0, interval_steps=1)
-    study_alphas = optuna.create_study(direction='maximize', pruner=pruner_p2)
+    study_alphas = optuna.create_study(direction='maximize', sampler=AutoSampler(seed=42), pruner=pruner_p2)
     study_alphas.optimize(objective_alphas, n_trials=n_trials_override or 30, n_jobs=1, show_progress_bar=False, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
     
     best_alphas = get_averaged_production_params(study_alphas, top_k=3, primary_metric_idx=0, maximize_primary=True)
@@ -365,7 +369,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
         return last_score
 
     pruner_p3 = optuna.pruners.PatientPruner(optuna.pruners.PercentilePruner(percentile=75.0, n_startup_trials=10, n_warmup_steps=1, interval_steps=1), patience=1)
-    study_perf = optuna.create_study(direction='maximize', pruner=pruner_p3)
+    study_perf = optuna.create_study(direction='maximize', sampler=AutoSampler(seed=42), pruner=pruner_p3)
     study_perf.optimize(objective_perf_idx, n_trials=n_trials_override or 40, n_jobs=1, show_progress_bar=False, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
 
     final_perf_params = get_averaged_production_params(study_perf, top_k=5, primary_metric_idx=0, maximize_primary=True)
