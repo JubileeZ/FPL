@@ -554,7 +554,8 @@ async def _fetch_all_async(active_player_ids):
     semaphore = asyncio.Semaphore(50)
 
     async with aiohttp.ClientSession() as session:
-        tasks = [_fetch_player_async(session, p_id, semaphore) for p_id in active_player_ids]
+        # Wrap coroutines in create_task() so aiohttp can find asyncio.current_task()
+        tasks = [asyncio.create_task(_fetch_player_async(session, p_id, semaphore)) for p_id in active_player_ids]
 
         results = []
         # Wrap asyncio.as_completed with your existing tqdm.auto import
@@ -563,14 +564,18 @@ async def _fetch_all_async(active_player_ids):
 
         return [record for sublist in results for record in sublist]
 
-async def fetch_raw_history_cache(active_player_ids, use_cache=True):
+async def _fetch_raw_history_impl(active_player_ids, use_cache, cache_timeout_hours):
+    """Inner implementation that runs inside a proper asyncio Task."""
     cache_file = "raw_history_cache.parquet"
 
     if use_cache and os.path.exists(cache_file):
-        print(f"Loading raw match history from {cache_file}...")
-        return pd.read_parquet(cache_file)
+        file_age_seconds = time.time() - os.path.getmtime(cache_file)
+        if file_age_seconds < (cache_timeout_hours * 3600):
+            print(f"Loading raw match history from {cache_file} (Age: {file_age_seconds/3600:.1f} hours)...")
+            return pd.read_parquet(cache_file)
+        else:
+            print(f"Cache {cache_file} expired (older than {cache_timeout_hours} hours). Fetching fresh data...")
 
-    # 2. Await the helper function directly instead of using asyncio.run()
     records = await _fetch_all_async(active_player_ids)
 
     raw_df = pd.DataFrame(records)
@@ -580,6 +585,13 @@ async def fetch_raw_history_cache(active_player_ids, use_cache=True):
         print(f"Saved {len(raw_df)} match records to {cache_file}.")
 
     return raw_df
+
+async def fetch_raw_history_cache(active_player_ids, use_cache=True, cache_timeout_hours=12):
+    # Wrap in create_task to ensure aiohttp's timer context finds a current task
+    task = asyncio.create_task(
+        _fetch_raw_history_impl(active_player_ids, use_cache, cache_timeout_hours)
+    )
+    return await task
 
 # --- CELL 19 ---
 def enforce_datatypes(df, numeric_threshold=1.0):
