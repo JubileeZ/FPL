@@ -69,7 +69,7 @@ def validate_and_fill_params(params: dict, contract: dict, silent: bool = False)
         print("\n".join(filled))
     return result
 
-def early_stopping_callback(study, trial, patience=40):
+def early_stopping_callback(study, trial, patience=40, **kwargs):
     if trial.number >= patience:
         best_trial_num = study.best_trial.number
         if trial.number - best_trial_num >= patience:
