@@ -3,7 +3,7 @@ import numpy as np
 import requests
 import json
 import asyncio
-import aiohttp
+import concurrent.futures
 import os
 import pickle
 import time
@@ -514,14 +514,20 @@ def get_dynamic_weights(
     }
 
 # --- CELL 17 ---
-async def _fetch_player_async(session, p_id, semaphore):
-    url = f"https://fantasy.premierleague.com/api/element-summary/{p_id}/"
 
-    async with semaphore:
-        async with session.get(url) as response:
-            if response.status != 200:
-                return []
-            data = await response.json()
+def _fetch_player_sync(p_id):
+    """Synchronous fetch for a single player's match history.
+    Runs inside a ThreadPoolExecutor to achieve concurrency without aiohttp,
+    which is incompatible with Python 3.14's asyncio.current_task() changes.
+    """
+    url = f"https://fantasy.premierleague.com/api/element-summary/{p_id}/"
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code != 200:
+            return []
+        data = response.json()
+    except Exception:
+        return []
 
     player_records = []
     # Removed the 'if match['minutes'] > 0:' filter to capture all matches
@@ -551,21 +557,29 @@ async def _fetch_player_async(session, p_id, semaphore):
     return player_records
 
 async def _fetch_all_async(active_player_ids):
-    semaphore = asyncio.Semaphore(50)
+    """Fetch all player histories concurrently using a thread pool.
+    Uses ThreadPoolExecutor + synchronous requests instead of aiohttp
+    to avoid Python 3.14 asyncio.current_task() incompatibility.
+    """
+    loop = asyncio.get_running_loop()
 
-    async with aiohttp.ClientSession() as session:
-        # Wrap coroutines in create_task() so aiohttp can find asyncio.current_task()
-        tasks = [asyncio.create_task(_fetch_player_async(session, p_id, semaphore)) for p_id in active_player_ids]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        futures = [
+            loop.run_in_executor(executor, _fetch_player_sync, p_id)
+            for p_id in active_player_ids
+        ]
 
         results = []
-        # Wrap asyncio.as_completed with your existing tqdm.auto import
-        for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Fetching Match History (Async)"):
-            results.append(await f)
+        pbar = tqdm(total=len(futures), desc="Fetching Match History")
+        for coro in asyncio.as_completed(futures):
+            results.append(await coro)
+            pbar.update(1)
+        pbar.close()
 
-        return [record for sublist in results for record in sublist]
+    return [record for sublist in results for record in sublist]
 
-async def _fetch_raw_history_impl(active_player_ids, use_cache, cache_timeout_hours):
-    """Inner implementation that runs inside a proper asyncio Task."""
+async def fetch_raw_history_cache(active_player_ids, use_cache=True, cache_timeout_hours=12):
+    """Fetch raw match history with caching support."""
     cache_file = "raw_history_cache.parquet"
 
     if use_cache and os.path.exists(cache_file):
@@ -585,13 +599,6 @@ async def _fetch_raw_history_impl(active_player_ids, use_cache, cache_timeout_ho
         print(f"Saved {len(raw_df)} match records to {cache_file}.")
 
     return raw_df
-
-async def fetch_raw_history_cache(active_player_ids, use_cache=True, cache_timeout_hours=12):
-    # Wrap in create_task to ensure aiohttp's timer context finds a current task
-    task = asyncio.create_task(
-        _fetch_raw_history_impl(active_player_ids, use_cache, cache_timeout_hours)
-    )
-    return await task
 
 # --- CELL 19 ---
 def enforce_datatypes(df, numeric_threshold=1.0):
