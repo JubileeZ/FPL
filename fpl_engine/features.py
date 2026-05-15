@@ -656,7 +656,8 @@ def get_fixture_players_stats_df(
 
     return fixture_player_df
 
-# --- CELL 29 ---def _fit_garch_minutes_volatility(
+# --- CELL 29 ---
+def _fit_garch_minutes_volatility(
     raw_history_df: pd.DataFrame,
     min_history: int = 8,
 ) -> pd.DataFrame:
