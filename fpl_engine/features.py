@@ -656,4 +656,40 @@ def get_fixture_players_stats_df(
 
     return fixture_player_df
 
-# --- CELL 29 ---
+# --- CELL 29 ---def _fit_garch_minutes_volatility(
+    raw_history_df: pd.DataFrame,
+    min_history: int = 8,
+) -> pd.DataFrame:
+    """
+    Fits GARCH(1,1) to minutes residuals to forecast conditional volatility.
+    Falls back to sample standard deviation if 'arch' is not installed or fit fails.
+    """
+    try:
+        from arch import arch_model
+        import warnings
+        warnings.filterwarnings('ignore', category=UserWarning)
+    except ImportError:
+        # Fallback: Compute sample std per player
+        res = raw_history_df.groupby('id_player')['minutes'].std().reset_index()
+        res.columns = ['id_player', 'garch_cond_vol']
+        res['garch_fitted'] = False
+        return res
+
+    results = []
+    for player_id, group in raw_history_df.groupby('id_player'):
+        mins = group['minutes'].values.astype(float)
+        if len(mins) < min_history:
+            results.append({'id_player': player_id, 'garch_cond_vol': np.std(mins) if len(mins) > 1 else 30.0, 'garch_fitted': False})
+            continue
+            
+        try:
+            # Fit GARCH(1,1) on minutes (using zero mean as rotation is a residual process)
+            am = arch_model(mins, vol='Garch', p=1, q=1, dist='Normal', rescale=False)
+            res = am.fit(update_freq=0, disp='off', show_warning=False)
+            forecast = res.forecast(horizon=1)
+            cond_vol = np.sqrt(forecast.variance.values[-1, 0])
+            results.append({'id_player': player_id, 'garch_cond_vol': cond_vol, 'garch_fitted': True})
+        except:
+            results.append({'id_player': player_id, 'garch_cond_vol': np.std(mins), 'garch_fitted': False})
+            
+    return pd.DataFrame(results)

@@ -4,6 +4,7 @@ from datetime import datetime
 import pulp
 import optuna
 from tqdm.auto import tqdm
+from fpl_engine.config import get_advanced_model_config
 from .data import get_current_players_df, get_pos_constraint_df
 
 def _print_gameweek_report(
@@ -110,6 +111,29 @@ def _print_gameweek_report(
     total_cost = start_df['now_cost'].sum() + bench_df['now_cost'].sum()
     print(f"\nTotal Squad Cost: £{total_cost:.1f}m")
 
+def _prefilter_candidate_pool(
+    horizon_df: pd.DataFrame,
+    current_team_ids: list,
+    objective_column: str = 'custom_score',
+    top_k_per_pos: int = 80,
+) -> list:
+    """
+    Reduces the player pool to a competitive subset to speed up MILP resolution.
+    Always preserves current squad members.
+    """
+    # 1. Start with current squad
+    selected_ids = set(current_team_ids)
+    
+    # 2. Get top performers per position based on horizon-summed score
+    horizon_totals = horizon_df.groupby(['id_player', 'position'])[objective_column].sum().reset_index()
+    
+    for pos in ['GKP', 'DEF', 'MID', 'FWD']:
+        pos_candidates = horizon_totals[horizon_totals['position'] == pos]
+        top_k = pos_candidates.nlargest(top_k_per_pos, objective_column)['id_player'].tolist()
+        selected_ids.update(top_k)
+        
+    return sorted(list(selected_ids))
+
 # --- CELL 40 ---
 def plan_sequential_transfers(
     gw_projection_df,
@@ -132,6 +156,7 @@ def plan_sequential_transfers(
     objective_column='custom_score',
     captain_column='ceiling_score',
     bank_aversion=0.01,
+    cvar_weight=0.0,
     return_model=False
 ):
     print(f"\n--- Running Sequential Transfer Planner for GW{start_gameweek} ---")
@@ -142,9 +167,21 @@ def plan_sequential_transfers(
     gameweeks = list(range(start_gameweek, np.minimum(start_gameweek + planning_horizon, 39)))
 
     horizon_df = gw_projection_df[gw_projection_df['gameweek'].isin(gameweeks)].copy()
-    player_ids = sorted(horizon_df['id_player'].unique())
-
+    
+    adv_cfg = get_advanced_model_config()
     current_team_ids = current_team_ids or []
+    
+    # Pre-filter candidates (Column Generation approach)
+    top_k = adv_cfg.get("column_gen_top_k", 80)
+    player_ids = _prefilter_candidate_pool(
+        horizon_df, 
+        current_team_ids, 
+        objective_column, 
+        top_k_per_pos=top_k
+    )
+    
+    # Filter horizon_df to only include pre-filtered players
+    horizon_df = horizon_df[horizon_df['id_player'].isin(player_ids)].copy()
     current_realizable_value_dict = current_realizable_value_dict or {}
     is_new_season = len(current_team_ids) == 0
 
@@ -252,9 +289,18 @@ def plan_sequential_transfers(
         for p in player_ids for t in gameweeks
     )
 
-    # Update final objective function to include the discount
     # Update final objective function to include the tie-breaker
-    prob += squad_score + carry_ft_reward - transfer_costs + transfer_hit_discount - bank_penalty + starter_diff_tiebreaker
+    cvar_term = 0
+    if cvar_weight > 0 and 'sc_p10' in horizon_df.columns:
+        # Penalize squads with low tail scenarios (using p10 as a proxy for CVaR in minimal baseline)
+        cvar_scores = horizon_df.pivot(index='id_player', columns='gameweek', values='sc_p10').fillna(0)
+        cvar_term = pulp.lpSum(
+            starters[p][t] * cvar_scores.loc[p, t]
+            for p in player_ids for t in gameweeks
+        )
+        prob += (1 - cvar_weight) * (squad_score + carry_ft_reward - transfer_costs + transfer_hit_discount - bank_penalty + starter_diff_tiebreaker) + cvar_weight * cvar_term
+    else:
+        prob += squad_score + carry_ft_reward - transfer_costs + transfer_hit_discount - bank_penalty + starter_diff_tiebreaker
 
     # =========================================================================
     # 4. CONSTRAINTS

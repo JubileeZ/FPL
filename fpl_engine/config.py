@@ -116,4 +116,15 @@ def get_season_params(current_gw: int) -> dict:
     base    = get_adaptive_params(current_gw, config_data['locked_params'], config_data['adaptive_targets'])
     minutes = get_minutes_params(current_gw, config_data['minutes_targets'])
     return {**base, **minutes}
-
+def get_advanced_model_config() -> dict:
+    """Returns the advanced_model section with safe defaults if missing."""
+    config_data = load_tuned_params()
+    return config_data.get("advanced_model", {
+        "enable_covariance_ceiling": False,
+        "enable_garch_minutes": False,
+        "enable_scenarios": False,
+        "scenario_count": 5000,
+        "cvar_alpha": 0.10,
+        "cvar_weight": 0.0,
+        "column_gen_top_k": 80
+    })

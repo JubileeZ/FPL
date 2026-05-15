@@ -4,6 +4,15 @@ import time
 from datetime import datetime
 import optuna
 from tqdm.auto import tqdm
+from scipy.stats import skellam
+from fpl_engine.config import load_tuned_params, get_advanced_model_config
+from fpl_engine.scoring import (
+    _calculate_performance_indices, 
+    _diagnose_bonus_model, 
+    _estimate_component_correlation
+)
+from fpl_engine.features import _fit_garch_minutes_volatility
+from fpl_engine.scenarios import generate_scenario_tensor
 
 def evaluate_fpl_duel_discrete(df, player_a_id, player_b_id, elo_win, elo_loss):
     """
@@ -402,10 +411,23 @@ async def run_optimization_pipeline(
     params.update(reg_params)
     params.update(dispersion_params)
 
+    adv_cfg = get_advanced_model_config()
+    
+    # Phase 1: Covariance & GARCH
+    component_corr = None
+    if adv_cfg.get("enable_covariance_ceiling"):
+        component_corr = _estimate_component_correlation(raw_history_df)
+        
+    garch_vol_df = None
+    if adv_cfg.get("enable_garch_minutes"):
+        garch_vol_df = _fit_garch_minutes_volatility(raw_history_df)
+
     fixture_player_df = _calculate_performance_indices(
         fixture_player_df,
         params,
-        bonus_model=bonus_model
+        bonus_model=bonus_model,
+        component_corr=component_corr,
+        garch_vol_df=garch_vol_df
     )
 
     gc.collect()
@@ -465,4 +487,37 @@ async def run_optimization_pipeline(
     # --- CELL 65 ---
 
 
+    # Phase 2: Scenario Generation
+    if adv_cfg.get("enable_scenarios"):
+        n_scenarios = adv_cfg.get("scenario_count", 5000)
+        scenario_tensor = generate_scenario_tensor(
+            gw_projection_df=gw_projection_df,
+            component_corr=component_corr if component_corr else {"corr_matrix": np.eye(6)},
+            n_scenarios=n_scenarios
+        )
+        
+        # Collapse scenarios to stats and merge
+    # Phase 2: Scenario Generation
+    if adv_cfg.get("enable_scenarios"):
+        n_scenarios = adv_cfg.get("scenario_count", 5000)
+        scenario_tensor = generate_scenario_tensor(
+            gw_projection_df=gw_projection_df,
+            component_corr=component_corr if component_corr else {"corr_matrix": np.eye(6)},
+            n_scenarios=n_scenarios
+        )
+        
+        # Collapse scenarios to stats and merge
+        # For now, we compute p10 as a simple downside metric
+        p10 = np.quantile(scenario_tensor, 0.10, axis=2)
+        
+        # Map back to gw_projection_df
+        players = gw_projection_df['id_player'].unique()
+        gameweeks = sorted(gw_projection_df['gameweek'].unique())
+        player_idx_map = {pid: i for i, pid in enumerate(players)}
+        
+        gw_projection_df['sc_p10'] = gw_projection_df.apply(
+            lambda row: p10[player_idx_map[row['id_player']], gameweeks.index(row['gameweek'])],
+            axis=1
+        )
+        
     return gw_projection_df

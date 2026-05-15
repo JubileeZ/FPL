@@ -392,7 +392,23 @@ toward league-average conversion rates.
 
 ---
 
-## 6. Glossary
+## 7. Stochastic Modeling & Risk (NEW in Optimizer v4)
+
+As of May 2026, the optimizer supports high-performance stochastic pipelines to better model upside and rotation risk.
+
+### 7.1 GARCH Minutes Volatility
+Rather than using static trailing standard deviation, the engine uses a **GARCH(1,1)** model to estimate conditional volatility of minutes.
+- **Goal**: Capture the "volatility clustering" of rotation-prone players.
+- **Usage**: Feeds into the `minutes_IDX` dampening logic. High-volatility players get lower expected scores even with high average minutes.
+
+### 7.2 Covariance-Aware Variance Aggregation
+Performance indices are no longer assumed to be independent. The model estimates a pairwise correlation matrix $R$ between scoring components.
+- **Aggregation Formula**: $\sigma^2_{total} = S R S^T$ (where $S$ is a diagonal matrix of component standard deviations).
+- **Impact**: Improves the accuracy of the `ceiling_score` and dynamic upside metrics by accounting for multi-point event correlations (e.g., Goal ↔ Bonus).
+
+---
+
+## 8. Glossary
 
 | Term | Definition |
 |:---|:---|

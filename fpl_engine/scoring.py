@@ -168,6 +168,42 @@ def _check_distribution_assumptions(raw_history_df: pd.DataFrame) -> dict:
                     
     return disp_params
 
+from typing import Dict, List, Any, Optional
+
+def _estimate_component_correlation(
+    raw_history_df: pd.DataFrame,
+    min_minutes: int = 45,
+) -> Dict[str, Any]:
+    """
+    Computes the empirical pairwise correlation matrix between FPL scoring components.
+    Used to adjust total variance for non-independent events (e.g., goals <-> bonus).
+    """
+    if raw_history_df.empty:
+        return {"corr_matrix": np.eye(6), "component_order": [], "n_observations": 0}
+
+    df = raw_history_df[raw_history_df['minutes'] >= min_minutes].copy()
+    if df.empty:
+        return {"corr_matrix": np.eye(6), "component_order": [], "n_observations": 0}
+    
+    # Define components (pts-weighted)
+    components = {
+        'goals_pts': df['goals_scored'] * 4,
+        'assist_pts': df['assists'] * 3,
+        'cs_pts': (df['clean_sheets'] > 0).astype(int) * 4,
+        'save_pts': (df['saves'] // 3).astype(int),
+        'bonus_pts': df['bonus'],
+        'conceded_pts': (df['goals_conceded'] // 2).astype(int) * -1
+    }
+    
+    comp_df = pd.DataFrame(components)
+    corr_matrix = comp_df.corr().fillna(0)
+    
+    return {
+        "corr_matrix": corr_matrix.values,
+        "component_order": list(corr_matrix.columns),
+        "n_observations": len(df)
+    }
+
 # --- CELL 34 ---
 def _calculate_performance_indices(
     fixture_player_df: pd.DataFrame,
@@ -176,6 +212,8 @@ def _calculate_performance_indices(
     bps_calibrators: dict = None,
     minute_overrides: dict = None,
     UPSIDE_Z: float = 1.5,
+    component_corr: dict = None,
+    garch_vol_df: pd.DataFrame = None,
 ):
     """
     Calculates FPL performance indices for every player-fixture row.
@@ -432,14 +470,18 @@ def _calculate_performance_indices(
     # Hard cap at [0, 90]. No player can be projected for negative or >90 minutes.
     base_minutes = np.clip(base_minutes, 0, 90)
 
-    # --- B7. Volatility-Dampened Role Multiplier ---
-    # A player with high minutes volatility (rotation risk) gets a lower
-    # effective minutes projection even if their raw average looks good.
-    # dynamic_role_floor scales between role_floor (high volatility) and a
-    # higher floor (low volatility / consistent starter).
-    # Final multiplier also scales with starter_confidence (% of games started).
+    # --- B7. Multiplier: Volatility-Dampened Role Multiplier ---
+    # High-volatility players (rotation risks) get their role score dampened.
+    # Normalization: Clip volatility relative to a 35-min "panic threshold".
+    
+    if garch_vol_df is not None:
+        merged_vol = df['id_player'].map(garch_vol_df.set_index('id_player')['garch_cond_vol'])
+        effective_vol = merged_vol.fillna(df['minutes_volatility'].fillna(30))
+    else:
+        effective_vol = df['minutes_volatility'].fillna(30)
+        
+    vol_norm           = np.clip(effective_vol / 35.0, 0, 1)
     starter_confidence = df['start_per_gameplayed'].fillna(0)
-    vol_norm           = np.clip(df['minutes_volatility'].fillna(30) / 35.0, 0, 1)
     dynamic_role_floor = role_floor + (1.0 - role_floor) * (1.0 - vol_norm) * 0.5
     role_multiplier    = dynamic_role_floor + ((1.0 - dynamic_role_floor) * starter_confidence)
 
@@ -803,23 +845,29 @@ def _calculate_performance_indices(
     var_conceded_pts = (penalty_mask ** 2) * var_conceded_deduction
 
     # --- F8. Total Score Variance and Standard Deviation ---
-    # Sum of independent component variances.
-    # Independence assumption: goals, assists, CS, saves, bonus, defcon,
-    # and conceded deductions are approximately independent conditional on
-    # fixture and minutes.  (The main correlation — goals↔bonus — is small
-    # relative to the total and makes this estimate conservative.)
-    total_variance = (
-        var_goal_pts
-        + var_assist_pts
-        + var_cs_pts
-        + var_save_pts
-        + var_bonus_pts
-        + var_defcon_pts
-        + var_conceded_pts
-    ).clip(lower=0)
+    # Vectorized covariance-aware variance aggregation.
+    # Formula: Var(Total) = s^T * R * s where s is the vector of per-component stds.
+    
+    variances_list = [
+        var_goal_pts, var_assist_pts, var_cs_pts, 
+        var_save_pts, var_bonus_pts, var_conceded_pts
+    ]
+    
+    if component_corr is not None and "corr_matrix" in component_corr:
+        R = component_corr["corr_matrix"]
+        # Stack per-row stds into a (N_rows, 6) matrix
+        stds_matrix = np.column_stack([np.sqrt(v.clip(lower=0)) for v in variances_list])
+        
+        # Matrix multiplication: total_var_per_row = diag(S * R * S^T)
+        # Optimized as: sum( (S @ R) * S, axis=1 )
+        total_variance = np.sum((stds_matrix @ R) * stds_matrix, axis=1)
+        total_variance = pd.Series(total_variance, index=df.index).clip(lower=0)
+    else:
+        total_variance = sum(variances_list).clip(lower=0)
 
     total_std = np.sqrt(total_variance)
-    df['score_std'] = total_std   # store for diagnostics and calibration checks
+    df['score_std'] = total_std   
+    df['score_std_indep'] = np.sqrt(sum(variances_list).clip(lower=0))
 
     # --- F9. Ceiling Score ---
     # ceiling_score = Perf_IDX + Z * total_std

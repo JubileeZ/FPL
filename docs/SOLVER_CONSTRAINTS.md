@@ -30,9 +30,18 @@ This document defines the rules enforced by the PuLP Linear Programming solver (
 - **Wildcard/Free Hit**: Unlimited transfers for 0 points. FT balance resets to 1 after playing.
 
 ## 4. Objective Function Structure
-The solver maximizes expected utility:
-`Maximize: squad_score + carry_ft_reward - transfer_costs + transfer_hit_discount - bank_penalty + starter_diff_tiebreaker`
+The solver maximizes expected utility, potentially blending expected returns with tail-risk protection:
+`Maximize: (1 - ω) * [deterministic_utility] + ω * [stochastic_utility]`
+
+### 4.1 Deterministic Utility Components
 - **squad_score**: Expected points (Starters + Captain*2 + Bench*0.05).
+- **carry_ft_reward**: Reward for banking free transfers (FTs).
 - **transfer_costs**: (Paid transfers * 4) + transfer_friction penalty.
+- **transfer_hit_discount**: Rebate for "high-value" hits based on bonus model data.
 - **bank_penalty**: Minor penalty (e.g. 0.01 per £0.1m) to encourage utilizing funds.
-- **starter_diff_tiebreaker**: Micro-weight (0.5 * bonus_mult) applied to starters to differentiate equal-point options.
+- **starter_diff_tiebreaker**: Micro-weight (0.5 * bonus_mult) to differentiate equal-point options.
+
+### 4.2 Stochastic Utility (CVaR)
+If `cvar_weight` (ω) > 0, the solver adds a **Conditional Value at Risk** component:
+- **tail_risk**: The average expected points in the worst 10% (p10) of Monte Carlo scenarios.
+- **Purpose**: Avoids "glass cannon" squads by penalizing players with extreme downside variance or high rotation risk (captured via GARCH).
