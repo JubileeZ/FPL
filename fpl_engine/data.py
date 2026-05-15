@@ -5,19 +5,9 @@ import json
 import asyncio
 import concurrent.futures
 import os
-import pickle
 import time
 from datetime import datetime
-from scipy.stats import poisson, norm
 from scipy.optimize import minimize
-import pulp
-from optuna.samplers import GridSampler
-import optuna
-import optunahub
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from sklearn.linear_model import LogisticRegression
-import warnings
 from tqdm.auto import tqdm
 
 def get_fpl_gameweek_summary():

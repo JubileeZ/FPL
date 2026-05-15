@@ -1,23 +1,8 @@
 import pandas as pd
 import numpy as np
-import requests
-import json
-import asyncio
-import aiohttp
-import os
-import pickle
 import time
 from datetime import datetime
-from scipy.stats import poisson, norm
-from scipy.optimize import minimize
-import pulp
-from optuna.samplers import GridSampler
 import optuna
-import optunahub
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from sklearn.linear_model import LogisticRegression
-import warnings
 from tqdm.auto import tqdm
 
 def evaluate_fpl_duel_discrete(df, player_a_id, player_b_id, elo_win, elo_loss):
@@ -277,7 +262,7 @@ def get_averaged_production_params(study, top_k=5, primary_metric_idx=0, maximiz
 
 # --- CELL 51 ---
 # Import canonical config — single source of truth for all params.
-from fpl_engine.config import LOCKED_PARAMS, get_adaptive_params, get_minutes_params, get_season_params
+from fpl_engine.config import get_season_params
 
 
 
