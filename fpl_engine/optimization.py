@@ -36,9 +36,16 @@ def evaluate_fpl_duel_discrete(df, player_a_id, player_b_id, elo_win, elo_loss):
     mu_a = player_a['Perf_IDX']
     mu_b = player_b['Perf_IDX']
 
-    # Approximate Variance using the 95th percentile ceiling
-    var_a = max((player_a['ceiling_score'] - mu_a) / 1.645, 1.0) ** 2
-    var_b = max((player_b['ceiling_score'] - mu_b) / 1.645, 1.0) ** 2
+    # Use the pre-computed score_std from the variance-aggregation engine.
+    # Falls back to reverse-engineering from ceiling_score if score_std is missing.
+    if 'score_std' in player_a.index and pd.notna(player_a.get('score_std')):
+        var_a = max(player_a['score_std'], 1.0) ** 2
+    else:
+        var_a = max((player_a['ceiling_score'] - mu_a) / 1.5, 1.0) ** 2
+    if 'score_std' in player_b.index and pd.notna(player_b.get('score_std')):
+        var_b = max(player_b['score_std'], 1.0) ** 2
+    else:
+        var_b = max((player_b['ceiling_score'] - mu_b) / 1.5, 1.0) ** 2
 
     # Difference parameters
     mu_diff = mu_a - mu_b
@@ -74,7 +81,11 @@ def generate_all_duels_matrix(df):
     """
     # 1. Filter active players and calculate individual variances
     active_df = df[df['Perf_IDX'] > 0].copy()
-    active_df['variance'] = np.maximum((active_df['ceiling_score'] - active_df['Perf_IDX']) / 1.645, 1.0) ** 2
+    # Prefer pre-computed score_std; fall back to ceiling_score with correct Z=1.5
+    if 'score_std' in active_df.columns:
+        active_df['variance'] = np.maximum(active_df['score_std'], 1.0) ** 2
+    else:
+        active_df['variance'] = np.maximum((active_df['ceiling_score'] - active_df['Perf_IDX']) / 1.5, 1.0) ** 2
 
     # 2. Create a cross-join of all possible matchups (Player A vs Player B)
     cols_to_keep = ['id_player', 'web_name', 'Perf_IDX', 'variance']
@@ -265,100 +276,8 @@ def get_averaged_production_params(study, top_k=5, primary_metric_idx=0, maximiz
     return avg_params
 
 # --- CELL 51 ---
-
-# =========================================================================
-# SEASON-ADAPTIVE PARAMETER ENGINE
-# Automatically scales trust and decay parameters based on the current Gameweek
-# =========================================================================
-
-LOCKED_PARAMS = {
-    # Fixture multiplier structure
-    'fixture_alpha_att'           : 0.09,
-    'fixture_alpha_def'           : 0.07,
-    'blend_alpha'                 : 0.50,
-    'min_fixtures_full_trust'     : 15,
-
-    # Score calculation structure
-    'cs_clip_lower'               : 0.10,
-    'cs_clip_upper'               : 0.765,
-    'finishing_factor_clip_lower' : 0.50,
-    'finishing_factor_clip_upper' : 1.69,
-    'protective_factor_clip_lower': 0.65,
-    'protective_factor_clip_upper': 1.50,
-
-    # Minutes engine structure
-    'minutes_role_floor'          : 0.485,   # UPDATED (from 0.42)
-    'minutes_loyalty_w'           : 0.475,   # UPDATED (from 0.95)
-    'minutes_trend_scale'         : 0.10,
-    'minutes_high_streak'         : 2.4,     # UPDATED (from 3)
-    'minutes_low_vol_thresh'      : 5.0,     # UPDATED (from 45.0)
-
-    # League prior
-    'league_avg_xG'               : 1.45,
-    'league_avg_xGC'              : 1.45,
-}
-
-def get_adaptive_params(current_gw: int, locked_params: dict) -> dict:
-    """Linearly interpolates confidence parameters between GW1 and GW20."""
-    TRANSITION_GW = 20
-    # Guard against None GW values (defaults to late-season if missing)
-    if current_gw is None:
-        current_gw = 38
-
-    t = min(current_gw / TRANSITION_GW, 1.0)   # 0.0 at GW1, 1.0 at GW20+
-
-    def lerp(start, end):
-        return round(start + t * (end - start), 4)
-
-    adaptive = {
-        'c_finish'         : lerp(30.0,  0.5),     # GW1: Strong prior -> GW20: Trust individual
-        'c_protect'        : lerp(30.0,  7.815),   # UPDATED (steady state 7.815)
-        'c_base_defense'   : lerp(20.0,  8.0),
-        'recency_ema_alpha': lerp(0.30,  0.00),
-        'rolling_ema_alpha': lerp(0.10,  0.33),    # UPDATED (steady state 0.33)
-        'fixture_alpha_att': lerp(0.04,  0.09),
-        'fixture_alpha_def': lerp(0.03,  0.07),
-    }
-    return {**locked_params, **adaptive}
-
-def get_minutes_params(current_gw: int) -> dict:
-    """Phases the Minutes Engine from baseline-heavy (Early) to form-heavy (Late)."""
-    if current_gw is None:
-        current_gw = 38
-
-    if current_gw <= 6:
-        # EARLY: No meaningful form signal exists yet.
-        return {
-            'minutes_w_form'          : 0.40,
-            'minutes_w_haaland_season': 0.60,
-            'minutes_w_gk_form'       : 0.70,
-            'minutes_ema_alpha'       : 0.30,
-        }
-    elif current_gw <= 20:
-        # MID: Linear interpolation across the zone.
-        t = (current_gw - 6) / (20 - 6)
-        def lerp(start, end):
-            return round(start + t * (end - start), 3)
-
-        return {
-            'minutes_w_form'          : lerp(0.40, 0.935),  # UPDATED (target 0.935)
-            'minutes_w_haaland_season': lerp(0.60, 0.155),  # UPDATED (target 0.155)
-            'minutes_w_gk_form'       : lerp(0.70, 1.00),
-            'minutes_ema_alpha'       : lerp(0.30, 0.925),  # UPDATED (target 0.925)
-        }
-    else:
-        # LATE: Squads settled, form dominates.
-        return {
-            'minutes_w_form'          : 0.935,  # UPDATED
-            'minutes_w_haaland_season': 0.155,  # UPDATED
-            'minutes_w_gk_form'       : 1.00,
-            'minutes_ema_alpha'       : 0.925,  # UPDATED
-        }
-
-def get_season_params(current_gw: int) -> dict:
-    base    = get_adaptive_params(current_gw, LOCKED_PARAMS)
-    minutes = get_minutes_params(current_gw)
-    return {**base, **minutes}
+# Import canonical config — single source of truth for all params.
+from fpl_engine.config import LOCKED_PARAMS, get_adaptive_params, get_minutes_params, get_season_params
 
 
 

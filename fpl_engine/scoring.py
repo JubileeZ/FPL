@@ -470,9 +470,11 @@ def _calculate_performance_indices(
     )
 
     # --- C3. Goals Conceded Deduction ---
-    # Exact expected deduction formula for GKP/DEF:
-    # Accounts for the discrete nature of FPL's -1pt per 2 goals conceded rule.
-    # deduction = E[floor(xGC / 2)] computed analytically.
+    # Exact expected deduction for GKP/DEF:
+    # FPL rule: -1pt per 2 goals conceded → deduction = floor(GC / 2).
+    # For GC ~ Poisson(λ): E[floor(GC/2)] = (λ - P(odd)) / 2
+    #   where P(odd) = (1 - e^{-2λ}) / 2
+    # Simplifies to: λ/2 - 1/4 + e^{-2λ}/4.  This is exact, not an approximation.
     deduction_project = adj_xGC_pred / 2 - 0.25 + 0.25 * np.exp(-2 * adj_xGC_pred)
     df['CONCEDED_PENALTY'] = penalty_mask * deduction_project
 
@@ -504,18 +506,18 @@ def _calculate_performance_indices(
 
     # --- C8. Defensive Contribution Bonus (DefCon) ---
     # FPL awards bonus BPS for accumulating clearances, blocks, interceptions.
-    # Modelled as P(defensive actions > threshold) using a normal approximation.
-    # Mean and std are derived from the player's historical defensive contribution
-    # per 90, scaled by minutes projection.
+    # Modelled as P(defensive actions ≥ threshold) using exact Poisson survival.
+    # Defensive actions per match are well-modelled as Poisson(λ) — independent
+    # rare events per minute of play.
     pred_defcon_abs = (
         df['defensive_contribution_per_90'].fillna(0)
         * df['fixture_defence_multiplier']
         * (df['minutes_IDX'] / 90)
     )
-    std_defcon   = np.sqrt(pred_defcon_abs.clip(lower=1e-6))
     defcon_thresh = df['position'].map({'GKP': 100, 'DEF': 10, 'MID': 12, 'FWD': 12}).fillna(100)
 
-    df['defcon_prob']      = stats.norm.sf(defcon_thresh - 0.5, loc=pred_defcon_abs, scale=std_defcon)
+    # Exact Poisson: P(X ≥ thresh) = 1 - P(X ≤ thresh-1) = 1 - CDF(thresh-1)
+    df['defcon_prob']      = 1 - poisson.cdf(defcon_thresh - 1, pred_defcon_abs.clip(lower=1e-9))
     df['defcon_component'] = defcon_mask * df['defcon_prob']
 
     # --- C9. BPS Estimate (for bonus point model) ---
@@ -559,11 +561,8 @@ def _calculate_performance_indices(
         * df['fixture_defence_multiplier']
         * (actual_mins / 90)
     )
-    std_defcon_calibrate  = np.sqrt(pred_defcon_abs_calibrate.clip(lower=1e-6))
-    defcon_prob_calibrate = stats.norm.sf(
-        defcon_thresh - 0.5,
-        loc=pred_defcon_abs_calibrate,
-        scale=std_defcon_calibrate
+    defcon_prob_calibrate = 1 - poisson.cdf(
+        defcon_thresh - 1, pred_defcon_abs_calibrate.clip(lower=1e-9)
     )
     defcon_pts   = defcon_mask * defcon_prob_calibrate
     assist_pts   = (hybrid_xA_90 * assist_mask) * (actual_mins / 90)
@@ -739,9 +738,11 @@ def _calculate_performance_indices(
     )
 
     # --- F5. Variance: Save Points (GKP only) ---
-    # Saves ~ Poisson(λ). Var[save_pts] = λ × save_pts_per_save²
-    # save_mask = 1/3, so variance per save = (1/3)² = 1/9.
-    var_save_pts = exp_saves * (save_mask ** 2)
+    # Saves ~ Poisson(λ). Var[save_pts] = λ_raw × (pts_per_save)²
+    # exp_saves is already in points-space (λ_raw × save_mask), so we divide
+    # by save_mask once to recover λ_raw, then multiply by save_mask².
+    # Net effect: var = exp_saves × save_mask.
+    var_save_pts = exp_saves * save_mask
 
     # --- F6. Variance: Bonus Points ---
     # Extract directly from the classifier's probability distribution.
@@ -762,13 +763,20 @@ def _calculate_performance_indices(
     # defcon_mask = 2 (2 pts per defcon bonus event).
     var_defcon_pts = (defcon_mask ** 2) * df['defcon_prob'] * (1 - df['defcon_prob'])
 
+    # --- F7b. Variance: Goals Conceded Deduction (GKP/DEF) ---
+    # For GC ~ Poisson(λ), deduction = floor(GC/2), and:
+    #   Var[floor(GC/2)] = (λ + P(odd) - P(odd)²) / 4  where P(odd) = (1-e^{-2λ})/2
+    # For moderate λ this simplifies to ≈ λ/4.  We use the exact form.
+    p_odd = (1 - np.exp(-2 * adj_xGC_pred)) / 2
+    var_conceded_deduction = (adj_xGC_pred + p_odd - p_odd ** 2) / 4
+    var_conceded_pts = (penalty_mask ** 2) * var_conceded_deduction
+
     # --- F8. Total Score Variance and Standard Deviation ---
     # Sum of independent component variances.
-    # Independence assumption: goals, assists, CS, saves, bonus, defcon
-    # are approximately independent conditional on fixture and minutes.
-    # (A player scoring a goal doesn't prevent them from also earning saves —
-    # but the JOINT extreme of all peaking simultaneously is penalised by the
-    # √(ΣVar) formula vs the old Σ(√Var_i) formula.)
+    # Independence assumption: goals, assists, CS, saves, bonus, defcon,
+    # and conceded deductions are approximately independent conditional on
+    # fixture and minutes.  (The main correlation — goals↔bonus — is small
+    # relative to the total and makes this estimate conservative.)
     total_variance = (
         var_goal_pts
         + var_assist_pts
@@ -776,6 +784,7 @@ def _calculate_performance_indices(
         + var_save_pts
         + var_bonus_pts
         + var_defcon_pts
+        + var_conceded_pts
     ).clip(lower=0)
 
     total_std = np.sqrt(total_variance)
