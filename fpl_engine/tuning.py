@@ -259,7 +259,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
         return {k: round(round(v / 0.005) * 0.005, 3) for k, v in best.items()} if best else {}
 
     print("Phase 1: Minutes Optimization...")
-    best_minutes_v1 = run_minutes_optimization(BASE_CONSTANTS, static_base_df, raw_history_df, n_trials=n_trials_override or 40)
+    best_minutes_v1 = run_minutes_optimization(BASE_CONSTANTS, static_base_df, raw_history_df, n_trials=n_trials_override or 50)
     
     def objective_alphas(trial):
         params = {**BASE_CONSTANTS, **best_minutes_v1}
@@ -370,7 +370,7 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
 
     pruner_p3 = optuna.pruners.PatientPruner(optuna.pruners.PercentilePruner(percentile=75.0, n_startup_trials=10, n_warmup_steps=1, interval_steps=1), patience=1)
     study_perf = optuna.create_study(direction='maximize', sampler=AutoSampler(seed=42), pruner=pruner_p3)
-    study_perf.optimize(objective_perf_idx, n_trials=n_trials_override or 40, n_jobs=1, show_progress_bar=False, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
+    study_perf.optimize(objective_perf_idx, n_trials=n_trials_override or 50, n_jobs=1, show_progress_bar=False, callbacks=[lambda study, trial: early_stopping_callback(study, trial, patience=15)])
 
     final_perf_params = get_averaged_production_params(study_perf, top_k=5, primary_metric_idx=0, maximize_primary=True)
     if final_perf_params:
