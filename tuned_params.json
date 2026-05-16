@@ -33,7 +33,13 @@
         "minutes_w_form": 0.91,
         "minutes_w_haaland_season": 0.845,
         "minutes_w_gk_form": 1.0,
-        "minutes_ema_alpha": 0.95
+        "minutes_ema_alpha": 0.95,
+        "minutes_coverage_revert_w": 0.70,
+        "coverage_spike_z_gkp": 1.2,
+        "coverage_spike_z_def": 1.5,
+        "coverage_spike_z_mid": 1.7,
+        "coverage_spike_z_fwd": 1.5,
+        "enable_coverage_filter": true
     },
     "advanced_model": {
         "enable_covariance_ceiling": true,

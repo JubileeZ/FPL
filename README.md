@@ -8,6 +8,7 @@ An advanced, mathematics-driven Fantasy Premier League (FPL) squad optimizer and
 - **Bayesian Player Shrinkage**: Normalizes player stats against fixture difficulty and shrinks small-sample variance toward positional means to prevent overfitting to early-season streaks.
 - **Hybrid Skellam-Normal Duels**: Evaluates player-vs-player performance using discrete Skellam distributions with an automated Normal-fallback for numerical stability in lopsided matchups.
 - **Independent Stochastic Scenarios**: Generates 5,000+ parallel timelines with player-independent random draws, enabling accurate Conditional Value at Risk (CVaR) calculations for squad diversification.
+- **Backup Anomaly Detection**: Generalized statistical filter that flags temporary minutes inflation for depth players covering injuries, reverting projections toward historical baselines.
 - **Linear Programming Solver (PuLP)**: Plans up to 6 Gameweeks of transfers. Respects FPL constraints including bank balance, Free Transfer banking (up to 5), Wildcards, Free Hits, and transfer hit penalties.
 
 ## ⚙️ Parameter Tuning & Optimization

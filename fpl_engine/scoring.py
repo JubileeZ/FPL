@@ -498,6 +498,23 @@ def _calculate_performance_indices(
     # Used as the primary scaling denominator for all subsequent expected values.
     df['minutes_IDX'] = base_minutes * role_multiplier * adjusted_injury_prob
 
+    # --- B8.5. Coverage Spike Suppression ---
+    if 'is_coverage_spike' in df.columns:
+        COVERAGE_REVERT_W = p.get('minutes_coverage_revert_w', 0.70)
+
+        coverage_mask = (
+            df['is_coverage_spike'].fillna(False).astype(bool)
+            & (df['depth_rank'].fillna(99).astype(int) >= 2)
+        )
+
+        if coverage_mask.any():
+            df.loc[coverage_mask, 'minutes_IDX'] = (
+                (1.0 - COVERAGE_REVERT_W) * df.loc[coverage_mask, 'minutes_IDX']
+                + COVERAGE_REVERT_W       * df.loc[coverage_mask, 'season_p50'].fillna(0)
+            )
+
+        df['coverage_suppression_applied'] = coverage_mask
+
     # --- B8. Manual Overrides ---
     # Allow callers to override minutes_IDX for specific players or GWs.
     # 'default' key applies to all gameweeks; numeric keys apply per-GW.

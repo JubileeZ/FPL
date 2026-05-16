@@ -15,8 +15,9 @@ graph TD
     D --> E1[Phase 1: Minutes Engine Loss]
     D --> E2[Phase 2: Alpha/Recency Score]
     D --> E3[Phase 3: Perf Index NDCG]
+    D --> E4[Phase 4: Backup Anomaly Thresholds]
     
-    E1 & E2 & E3 --> F[ConfigManager: Persistence]
+    E1 & E2 & E3 & E4 --> F[ConfigManager: Persistence]
     F --> G[(tuned_params.json)]
     
     I[FPL Solver Execution] --> J[Read tuned_params.json]
@@ -33,8 +34,15 @@ Executes sequential optimization phases to ensure convergence:
 - **Phase 1 (Minutes)**: Optimizes EMA weights and "Rest Overrides" using a capped-penalty composite loss.
 - **Phase 2 (Recency)**: Tunes the alpha decay rates for team and player ratings.
 - **Phase 3 (Perf Index)**: Fine-tunes the Performance Index shrinkage constants using NDCG (Normalized Discounted Cumulative Gain).
+- **Phase 4 (Backup Anomaly)**: Optimizes Z-score thresholds to detect and suppress temporary minutes inflation for backup players.
 
-### 3. Persistence Layer (`tuned_params.json`)
+### 3. Backup Detection Engine (`fpl_engine/features.py`)
+Computes `is_coverage_spike` flags using a walk-forward safe statistical filter:
+- **Baseline**: Median minutes over a 20-fixture historical lookback, excluding a 3-fixture spike window.
+- **Anomaly Detection**: Calculates a position-specific Z-score for recent form vs historical baseline.
+- **Positional Depth**: Ranks players by team and position to isolate depth rank 2+ stand-ins.
+
+### 4. Persistence Layer (`tuned_params.json`)
 The **Single Source of Truth** for the engine's hyperparameters.
 - **Automated Updates**: Phased Optuna runs calculate production-ready weights and write them here.
 - **Adaptive Targets**: Includes season-adaptive scalars (e.g., `league_avg_xG`) that adjust as the meta shifts.

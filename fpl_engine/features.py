@@ -522,6 +522,141 @@ def compute_walkforward_minutes_features(
 
     return result
 
+# --- COVERAGE SPIKE DETECTION ---
+def compute_coverage_flags(
+    fixture_player_df: pd.DataFrame,
+    raw_history_df: pd.DataFrame,
+    player_df: pd.DataFrame,
+    params: dict,
+    lookback_window: int = 20,
+) -> pd.DataFrame:
+    """
+    Detects backup players whose recent minutes are temporarily inflated
+    because they are covering for an injured/absent starter.
+    """
+
+    # 1. Position-specific thresholds (overridable via params)
+    SPIKE_Z = {
+        'GKP': params.get('coverage_spike_z_gkp', 1.2),
+        'DEF': params.get('coverage_spike_z_def', 1.5),
+        'MID': params.get('coverage_spike_z_mid', 1.7),
+        'FWD': params.get('coverage_spike_z_fwd', 1.5),
+    }
+    MIN_SPIKE_MINS = {
+        'GKP': params.get('coverage_min_spike_gkp', 60.0),
+        'DEF': params.get('coverage_min_spike_def', 55.0),
+        'MID': params.get('coverage_min_spike_mid', 50.0),
+        'FWD': params.get('coverage_min_spike_fwd', 55.0),
+    }
+    EPS = 1e-6
+
+    # 2. Build long-term baseline from raw_history_df
+    hist = (
+        raw_history_df
+        .drop_duplicates(subset=['id_player', 'id_fixture'])
+        .sort_values(['id_player', 'kickoff_time'])
+        .copy()
+    )
+
+    SPIKE_WINDOW = 3
+
+    def _player_baseline(grp: pd.DataFrame) -> pd.Series:
+        n = len(grp)
+        if n <= SPIKE_WINDOW:
+            baseline_mins = grp['minutes'].values
+        else:
+            end_idx = max(0, n - SPIKE_WINDOW)
+            start_idx = max(0, end_idx - lookback_window)
+            baseline_mins = grp['minutes'].values[start_idx:end_idx]
+
+        if len(baseline_mins) == 0:
+            return pd.Series({'season_p50': 0.0, 'season_std': 30.0})
+
+        p50 = float(np.median(baseline_mins))
+        std = float(np.std(baseline_mins, ddof=1)) if len(baseline_mins) > 1 else 30.0
+        return pd.Series({'season_p50': p50, 'season_std': std})
+
+    baseline_df = (
+        hist.groupby('id_player')
+        .apply(_player_baseline)
+        .reset_index()
+    )
+
+    # 3. Merge position and team onto baseline
+    id_pos_team = (
+        player_df[['id', 'team', 'position']]
+        .rename(columns={'id': 'id_player'})
+    )
+    baseline_df = pd.merge(baseline_df, id_pos_team, on='id_player', how='left')
+
+    # 4. Compute team-positional depth rank
+    baseline_df['depth_rank'] = (
+        baseline_df.groupby(['team', 'position'])['season_p50']
+        .rank(ascending=False, method='first')
+        .astype(int)
+    )
+
+    # 5. Compute coverage spike Z-score
+    future_form = (
+        fixture_player_df[fixture_player_df['finished'] == False]
+        [['id_player', 'recent_minutes_form', 'position']]
+        .drop_duplicates('id_player')
+    )
+    if future_form.empty:
+        future_form = (
+            fixture_player_df
+            .sort_values('kickoff_time', ascending=False)
+            .drop_duplicates('id_player')
+            [['id_player', 'recent_minutes_form', 'position']]
+        )
+
+    baseline_df = pd.merge(
+        baseline_df,
+        future_form[['id_player', 'recent_minutes_form']],
+        on='id_player',
+        how='left'
+    )
+    baseline_df['recent_minutes_form'] = baseline_df['recent_minutes_form'].fillna(0.0)
+
+    baseline_df['coverage_spike_z'] = (
+        (baseline_df['recent_minutes_form'] - baseline_df['season_p50'])
+        / (baseline_df['season_std'] + EPS)
+    )
+
+    # 6. Apply position-specific gates
+    def _flag_spike(row):
+        pos = row.get('position', 'MID')
+        z_thresh   = SPIKE_Z.get(pos, 1.5)
+        min_thresh = MIN_SPIKE_MINS.get(pos, 55.0)
+
+        return bool(
+            row['coverage_spike_z'] > z_thresh
+            and row['recent_minutes_form'] > min_thresh
+            and row['depth_rank'] >= 2
+            and row['season_p50'] < min_thresh
+        )
+
+    baseline_df['is_coverage_spike'] = baseline_df.apply(_flag_spike, axis=1)
+
+    # 7. Merge back onto fixture_player_df
+    merge_cols = ['id_player', 'season_p50', 'season_std', 'depth_rank',
+                  'coverage_spike_z', 'is_coverage_spike']
+
+    result = pd.merge(
+        fixture_player_df,
+        baseline_df[merge_cols],
+        on='id_player',
+        how='left'
+    )
+
+    result['season_p50']        = result['season_p50'].fillna(result['minutes_per_game'].fillna(0))
+    result['season_std']        = result['season_std'].fillna(30.0)
+    result['depth_rank']        = result['depth_rank'].fillna(99).astype(int)
+    result['coverage_spike_z']  = result['coverage_spike_z'].fillna(0.0)
+    result['is_coverage_spike'] = result['is_coverage_spike'].fillna(False).astype(bool)
+
+    return result
+
 # --- CELL 27 ---
 def get_fixture_players_stats_df(
     params,
@@ -653,6 +788,21 @@ def get_fixture_players_stats_df(
         raw_history_df,
         ema_alpha=params.get('minutes_ema_alpha', 0.40),
     )
+
+    # 8. COVERAGE SPIKE FLAGS (walk-forward safe)
+    if params.get('enable_coverage_filter', True):
+        fixture_player_df = compute_coverage_flags(
+            fixture_player_df,
+            raw_history_df,
+            player_df,
+            params,
+        )
+    else:
+        fixture_player_df['season_p50']        = fixture_player_df['minutes_per_game'].fillna(0)
+        fixture_player_df['season_std']        = 30.0
+        fixture_player_df['depth_rank']        = 1
+        fixture_player_df['coverage_spike_z']  = 0.0
+        fixture_player_df['is_coverage_spike'] = False
 
     return fixture_player_df
 

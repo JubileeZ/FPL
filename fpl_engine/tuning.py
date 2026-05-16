@@ -153,6 +153,14 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
     PARAM_CONTRACT = current_config['locked_params'].copy()
     PARAM_CONTRACT.update(current_config['adaptive_targets'])
     PARAM_CONTRACT.update(current_config['minutes_targets'])
+    PARAM_CONTRACT.update({
+        'minutes_coverage_revert_w': 0.70,
+        'coverage_spike_z_gkp':      1.2,
+        'coverage_spike_z_def':      1.5,
+        'coverage_spike_z_mid':      1.7,
+        'coverage_spike_z_fwd':      1.5,
+        'enable_coverage_filter':    True,
+    })
     
     player_df         = get_current_players_df()
     active_player_ids = player_df['id'].unique()
@@ -203,6 +211,11 @@ async def _run_full_tuning_pipeline(current_config: dict, json_path: str, curren
                 'minutes_trend_scale':      trial.suggest_float('minutes_trend_scale',      0.10, 1.20),
                 'minutes_high_streak':      trial.suggest_float('minutes_high_streak',      2.00, 6.00),
                 'minutes_low_vol_thresh':   trial.suggest_float('minutes_low_vol_thresh',   5.00, 45.0),
+                'minutes_coverage_revert_w': trial.suggest_float('minutes_coverage_revert_w', 0.40, 0.95),
+                'coverage_spike_z_gkp':      trial.suggest_float('coverage_spike_z_gkp',      0.8, 2.0),
+                'coverage_spike_z_def':      trial.suggest_float('coverage_spike_z_def',      1.0, 2.5),
+                'coverage_spike_z_mid':      trial.suggest_float('coverage_spike_z_mid',      1.2, 3.0),
+                'coverage_spike_z_fwd':      trial.suggest_float('coverage_spike_z_fwd',      1.0, 2.5),
             })
             params = validate_and_fill_params(params, PARAM_CONTRACT, silent=True)
 

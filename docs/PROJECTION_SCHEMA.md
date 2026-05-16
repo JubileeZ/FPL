@@ -16,5 +16,7 @@ This is the bridge between the ML/Projection engine and the PuLP solver. The sol
 
 ## Underlying Model Outputs (Information Only)
 - `minutes_IDX` (float): Expected minutes [0, 90].
+- `is_coverage_spike` (bool): Flag identifying temporary minutes inflation for backup players.
+- `coverage_suppression_applied` (bool): Indicator that a revert-to-baseline discount was active.
 - `fixture_attack_multiplier` / `fixture_defence_multiplier` (float): Fixture difficulty scaling.
 - `CLEAN_SHEET_INDEX`, `GOAL_INDEX`, `ASSIST_INDEX`, `bonus_component`: The individual point contributions that sum up to `Perf_IDX`.

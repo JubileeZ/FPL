@@ -13,8 +13,9 @@ This document explains the "why" behind the core columns and metrics in the pipe
 ## 3. Minutes Projection (`minutes_IDX`)
 - **Base blend**: Form vs Season average.
 - **Bounce-Back Override**: If a proven starter was fully fit but played 0 mins, they were likely rested. Projects a bounce-back.
-- **Injury Discount**: Scales down minutes probabilistically based on `chance_of_playing_next_round`.
-- **Why it matters**: `minutes_IDX` is the fundamental scaling denominator. All expected points (goals, assists, CS) are scaled by `(minutes_IDX / 90)`.
+- **Backup Anomaly Filter**: Detects if recent form is a temporary spike for a depth rank 2+ player (stand-in). Reverts projected minutes toward the historical baseline using a tunable convex blend.
+- **Injury Discount**: Scales down minutes probabilistically based on chance_of_playing_next_round.
+- **Why it matters**: minutes_IDX is the fundamental scaling denominator. All expected points (goals, assists, CS) are scaled by (minutes_IDX / 90).
 
 ## 4. Expected Points (`Perf_IDX`)
 - **CLEAN_SHEET_INDEX**: Uses Poisson probability `exp(-adj_xGC_pred)`.
