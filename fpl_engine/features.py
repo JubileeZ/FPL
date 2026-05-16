@@ -303,7 +303,7 @@ def get_historical_normalized_stats(
     return result[keep_cols]
 
 # --- CELL 23 ---
-def apply_normalized_baselines(df, season_norm_df):
+def apply_normalized_baselines(df, season_norm_df, params=None):
     df = df.copy()
 
     # Merge normalized stats with a suffix to avoid clashing with existing columns
@@ -353,7 +353,7 @@ def apply_normalized_baselines(df, season_norm_df):
 
     # Use Bayesian shrinkage for per-90 rates to avoid inflation from low minutes
     # C_SHRINK (default 90 mins) pulls rates toward 0 for players with very few minutes.
-    c_shrink = params.get('per90_shrinkage_mins', 90.0)
+    c_shrink = params.get('per90_shrinkage_mins', 90.0) if params is not None else 90.0
     mins_eff = mins + c_shrink
 
     # Recalculate Per 90 Rates based on normalized totals with shrinkage
@@ -688,7 +688,7 @@ def get_fixture_players_stats_df(
         team_ratings_df=team_ratings_df,
         latest_team_ratings=latest_team_ratings
     )
-    fixture_player_df = apply_normalized_baselines(fixture_player_df, normalized_history)
+    fixture_player_df = apply_normalized_baselines(fixture_player_df, normalized_history, params)
 
     # 4. MERGE FIXTURE-LEVEL ACTUALS (Deduplicated)
     historical_actuals = raw_history_df.drop_duplicates(subset=['id_player', 'id_fixture']).copy()
