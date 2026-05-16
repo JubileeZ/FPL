@@ -370,6 +370,16 @@ finishing_factor = (goals_scored + C) / (xG + C)
 Where `C` is a shrinkage constant (default 5) that pulls small-sample players
 toward league-average conversion rates.
 
+#### 4.6.1 Cameo Inflation Protection (Bayesian Shrinkage)
+To prevent statistical noise from backup players with very few minutes (e.g., a sub recording 0.5 xG in a 1-minute cameo), the engine applies two layers of protection:
+
+1. **Historical Rate Flooring**: When calculating per-match rates for the EMA, minutes are floored at **15 minutes**. This caps the maximum possible rate inflation from a single short appearance.
+2. **Season-Long Bayesian Shrinkage**: All per-90 features are calculated with a **90-minute prior** (`per90_shrinkage_mins`):
+   ```
+   Rate_per_90 = (Total_Metric / (Total_Minutes + 90)) * 90
+   ```
+   This ensures that a player's individual record is only trusted once they have played significant minutes, pulling outliers toward a conservative zero-baseline.
+
 ---
 
 ## 5. Summary: Model Coverage vs Official Rules

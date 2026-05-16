@@ -50,4 +50,5 @@ The **Single Source of Truth** for the engine's hyperparameters.
 ### 4. Mathematical Guards
 - **Hybrid Skellam-Normal**: Duel evaluations automatically fall back to Normal approximations in lopsided matchups to prevent numerical instability.
 - **Independent Scenarios**: Stochastic draws are player-specific, ensuring that squad-level risk metrics (CVaR) reflect genuine diversification rather than broadcasted noise.
+- **Cameo Inflation Protection**: Uses a combination of 15-minute historical flooring and 90-minute Bayesian shrinkage to stabilize performance indices for players with low total minutes.
 

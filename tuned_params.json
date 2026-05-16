@@ -18,7 +18,8 @@
         "minutes_high_streak": 6.0,
         "minutes_low_vol_thresh": 13.08,
         "league_avg_xG": 1.45,
-        "league_avg_xGC": 1.45
+        "league_avg_xGC": 1.45,
+        "per90_shrinkage_mins": 90.0
     },
     "adaptive_targets": {
         "c_finish": 0.5,

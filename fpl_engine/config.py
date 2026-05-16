@@ -43,7 +43,8 @@ def load_tuned_params():
                 'protective_factor_clip_lower': 0.65, 'protective_factor_clip_upper': 1.50,
                 'minutes_role_floor': 0.485, 'minutes_loyalty_w': 0.475, 'minutes_trend_scale': 0.10,
                 'minutes_high_streak': 2.4, 'minutes_low_vol_thresh': 5.0,
-                'league_avg_xG': 1.45, 'league_avg_xGC': 1.45
+                'league_avg_xG': 1.45, 'league_avg_xGC': 1.45,
+                'per90_shrinkage_mins': 90.0
             },
             "adaptive_targets": {
                 'c_finish': 0.5, 'c_protect': 7.815, 'c_base_defense': 8.0,

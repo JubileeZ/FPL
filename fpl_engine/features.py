@@ -282,7 +282,7 @@ def get_historical_normalized_stats(
     for col in rate_cols:
         r90_col = f'{col}_r90'
         history_df[r90_col] = 0.0
-        history_df.loc[played_mask, r90_col] = (history_df.loc[played_mask, col] / (history_df.loc[played_mask, 'minutes'] / 90.0))
+        history_df.loc[played_mask, r90_col] = (history_df.loc[played_mask, col] / (minutes_floored / 90.0))
 
     history_df['norm_clean_sheets_r90'] = history_df['norm_clean_sheets']
 
@@ -351,20 +351,25 @@ def apply_normalized_baselines(df, season_norm_df):
 
     mins = df['minutes'].clip(lower=1)
 
-    # Recalculate Per 90 Rates based on normalized totals
-    df['expected_goals_per_90'] = (df['expected_goals'] / mins) * 90
-    df['expected_assists_per_90'] = (df['expected_assists'] / mins) * 90
-    df['expected_goals_conceded_per_90'] = (df['expected_goals_conceded'] / mins) * 90
-    df['threat_per_90'] = (df['threat'] / mins) * 90
-    df['creativity_per_90'] = (df['creativity'] / mins) * 90
-    df['saves_per_90'] = (df['saves'] / mins) * 90
-    df['defensive_contribution_per_90'] = (df['defensive_contribution'] / mins) * 90
+    # Use Bayesian shrinkage for per-90 rates to avoid inflation from low minutes
+    # C_SHRINK (default 90 mins) pulls rates toward 0 for players with very few minutes.
+    c_shrink = params.get('per90_shrinkage_mins', 90.0)
+    mins_eff = mins + c_shrink
+
+    # Recalculate Per 90 Rates based on normalized totals with shrinkage
+    df['expected_goals_per_90'] = (df['expected_goals'] / mins_eff) * 90
+    df['expected_assists_per_90'] = (df['expected_assists'] / mins_eff) * 90
+    df['expected_goals_conceded_per_90'] = (df['expected_goals_conceded'] / mins_eff) * 90
+    df['threat_per_90'] = (df['threat'] / mins_eff) * 90
+    df['creativity_per_90'] = (df['creativity'] / mins_eff) * 90
+    df['saves_per_90'] = (df['saves'] / mins_eff) * 90
+    df['defensive_contribution_per_90'] = (df['defensive_contribution'] / mins_eff) * 90
 
     # Recalculate other metrics if minutes changed slightly
     if 'bps' in df.columns:
-        df['bps_per_90'] = (df['bps'] / mins) * 90
+        df['bps_per_90'] = (df['bps'] / mins_eff) * 90
     if 'defensive_contribution' in df.columns:
-        df['defensive_contribution_per_90'] = (df['defensive_contribution'] / mins) * 90
+        df['defensive_contribution_per_90'] = (df['defensive_contribution'] / mins_eff) * 90
 
     # Clean up intermediate columns
     drop_cols = [c for c in df.columns if c.startswith('norm_') or c.endswith('_norm')]
