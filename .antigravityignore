@@ -1,0 +1,7 @@
+archive/
+.venv/
+fpl_engine/.venv/
+raw_history_cache.parquet
+__pycache__/
+*.py[cod]
+.git/

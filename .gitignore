@@ -25,10 +25,12 @@ wheels/
 .venv/
 venv/
 ENV/
+fpl_engine/.venv/
 
 # Jupyter Notebook
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
+archive/
 
 # Data files (usually large or specific to local runs)
 raw_history_cache.parquet

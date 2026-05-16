@@ -1,9 +1,0 @@
-{
-  "events": [
-    {"id": 36, "is_current": true, "finished": true},
-    {"id": 37, "is_next": true, "finished": false}
-  ],
-  "elements": [],
-  "teams": [],
-  "element_types": []
-}
