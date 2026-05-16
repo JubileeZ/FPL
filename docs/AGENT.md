@@ -22,7 +22,6 @@ The entire pipeline is run from the `FPL_Dashboard.ipynb` notebook.
 
 ## Don't Touch Zones
 - **FPL API Inversion Logic**: Do NOT "fix" the home/away strengths mapping. The API actually swaps them. This logic is correct as implemented and documented in `FPL_API_QUIRKS.md`.
-- **Variance Aggregation**: Do NOT change the `ceiling_score` calculation to add standard deviations directly. The current approach ($Var[Total] = \sum Var[Components]$) is mathematically correct.
 - **BPS Multinomial Weights**: Do NOT hardcode bonus points. Always use the trained logistic regression model (`_fit_bonus_multinomial`) mapped to expected BPS.
 
 ## Maintenance & Logging
