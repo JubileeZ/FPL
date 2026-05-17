@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 try:
-    df = pd.read_parquet('raw_history_cache.parquet')
+    df = pd.read_parquet('assets/raw_history_cache.parquet')
     
     # Filter for meaningful minutes to analyze distributions
     df_active = df[df['minutes'] >= 45].copy()

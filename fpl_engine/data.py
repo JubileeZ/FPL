@@ -570,7 +570,7 @@ async def _fetch_all_async(active_player_ids):
 
 async def fetch_raw_history_cache(active_player_ids, use_cache=True, cache_timeout_hours=12):
     """Fetch raw match history with caching support."""
-    cache_file = "raw_history_cache.parquet"
+    cache_file = "assets/raw_history_cache.parquet"
 
     if use_cache and os.path.exists(cache_file):
         file_age_seconds = time.time() - os.path.getmtime(cache_file)
