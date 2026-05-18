@@ -9,4 +9,3 @@
 - Never put .git inside Google Drive
 - Large files (images, data, exports) go in assets/ not in git
 - Always push to GitHub before ending a session
-- Use 'wip:' prefix for checkpoint commits
