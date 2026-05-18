@@ -33,14 +33,23 @@ await auto_tune_if_needed(current_gw=35, force=True)
 1. **Clone the repository**.
 2. **Create a Python Virtual Environment**:
    ```bash
-   python -m venv .venv
+   python3 -m venv .venv
    source .venv/bin/activate
    ```
+   *(Note: On macOS, use `python3` to initialize the environment. Once activated, the standard `python` command will map directly to this virtual environment).*
 3. **Install Dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
-4. **Run Validation Suite**:
+4. **Run the Streamlit Dashboard**:
+   ```bash
+   streamlit run app.py
+   ```
+   Or launch it directly using the virtual environment executables:
+   ```bash
+   ./.venv/bin/streamlit run app.py
+   ```
+5. **Run Validation Suite**:
    ```bash
    python tests/test_statistical_engine.py
    ```
