@@ -143,3 +143,5 @@ webencodings==0.5.1
 websocket-client==1.9.0
 widgetsnbextension==4.0.15
 yarl==1.23.0
+streamlit
+
