@@ -156,6 +156,30 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Check offline/sandbox mode
+is_offline = False
+try:
+    from fpl_engine.data import check_offline_mode
+    is_offline = check_offline_mode()
+except Exception:
+    pass
+
+if is_offline:
+    st.markdown("""
+    <div class="glass-card" style="background: rgba(255, 179, 0, 0.05); border: 1px solid rgba(255, 179, 0, 0.2); text-align: center; margin-bottom: 2rem; border-radius: 12px; padding: 1.2rem;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔌</div>
+        <strong style="color: #ffb300; font-size: 1.15rem; letter-spacing: 0.5px;">HIGH-FIDELITY OFFLINE SANDBOX ACTIVE</strong>
+        <p style="color: #a0aec0; font-size: 0.95rem; margin: 0.6rem 0 0 0; line-height: 1.5; text-align: left;">
+            The official Fantasy Premier League API is currently unreachable or offline simulation is enabled. The system has automatically fallback-switched to a complete local Sandbox: loading player metrics from historical cached Parquet database and synthesizing future gameweek schedule parameters.
+        </p>
+        <p style="color: #00f2fe; font-size: 0.9rem; margin: 0.4rem 0 0 0; font-weight: 600; text-align: left; list-style-position: inside;">
+            ✓ Solver optimization engine fully functional &nbsp;&nbsp;&nbsp;
+            ✓ Hyperparameter tuning bypass guarded &nbsp;&nbsp;&nbsp;
+            ✓ Multi-week planning projections operational
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # =========================================================================
 # ASYNC DATA FETCHING & PIPELINE ENGINE
@@ -398,6 +422,21 @@ if not players_df.empty:
 # SIDEBAR CONTROLS & OVERRIDES
 # =========================================================================
 st.sidebar.markdown('<div style="font-size:1.2rem; font-weight:700; color:#00f2fe; margin-bottom:1rem;">Optimization Parameters</div>', unsafe_allow_html=True)
+
+# Inject sidebar offline indicator
+is_offline = False
+try:
+    from fpl_engine.data import check_offline_mode
+    is_offline = check_offline_mode()
+except Exception:
+    pass
+
+if is_offline:
+    st.sidebar.markdown("""
+    <div style="background: rgba(255, 179, 0, 0.08); border: 1px solid rgba(255, 179, 0, 0.3); border-radius: 8px; padding: 0.6rem; margin-bottom: 1.2rem; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+        <span style="color: #ffb300; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.5px;">🔌 OFFLINE SANDBOX</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 # 1. Profile Manager ID
 manager_id = st.sidebar.number_input(

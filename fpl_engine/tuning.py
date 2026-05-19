@@ -51,7 +51,11 @@ async def auto_tune_if_needed(current_gw: int, force: bool = False, n_trials_ove
         if stale: reason.append(f"stale ({days_since_tune}d since last tune)")
         
         print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Auto-Tune Triggered: {', '.join(reason)}")
-        await _run_full_tuning_pipeline(params, json_path, current_gw, n_trials_override)
+        try:
+            await _run_full_tuning_pipeline(params, json_path, current_gw, n_trials_override)
+        except Exception as e:
+            print(f"\nWARNING: Hyperparameter tuning failed or is disabled in sandbox/offline mode: {e}")
+            print("Preserving current parameters in tuned_params.json and continuing.\n")
     else:
         print(f"Parameters up to date. (Last tuned GW: {last_tuned_gw}, {days_since_tune}d ago)")
 

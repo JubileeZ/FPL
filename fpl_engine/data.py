@@ -10,6 +10,80 @@ from datetime import datetime
 from scipy.optimize import minimize
 from tqdm.auto import tqdm
 
+_OFFLINE_MODE = None
+
+def check_offline_mode():
+    global _OFFLINE_MODE
+    if _OFFLINE_MODE is not None:
+        return _OFFLINE_MODE
+    try:
+        # Short timeout to detect FPL API availability
+        r = requests.get("https://fantasy.premierleague.com/api/bootstrap-static/", timeout=1.0)
+        if r.status_code == 200:
+            _OFFLINE_MODE = False
+            return False
+    except Exception:
+        pass
+    _OFFLINE_MODE = True
+    print("\n✦ [FPL Engine] Live API connection failed. Entering high-fidelity offline/sandbox mode! ✦\n")
+    return True
+
+def _generate_offline_gameweek_summary():
+    gameweek_data_list = []
+    for gw in range(1, 39):
+        gameweek_data_list.append({
+            "Gameweek ID": gw,
+            "Name": f"Gameweek {gw}",
+            "Finished": gw <= 29,
+            "Is Current": gw == 30,
+            "Is Next": gw == 31,
+            "Average Score": 45 if gw <= 29 else 0,
+            "Highest Score": 95 if gw <= 29 else 0,
+            "Deadline Time": f"2026-05-{gw:02d}T11:00:00Z",
+            "Chip Plays": json.dumps([])
+        })
+    return pd.DataFrame(gameweek_data_list)
+
+def _generate_offline_gameweek_data(fpl_id):
+    summary_df = _generate_offline_gameweek_summary()
+    events_list = []
+    for _, row in summary_df.iterrows():
+        gw = row['Gameweek ID']
+        events_list.append({
+            'gameweek_id': gw,
+            'name': row['Name'],
+            'deadline_time': row['Deadline Time'],
+            'average_entry_score': row['Average Score'],
+            'finished': row['Finished'],
+            'data_checked': True,
+            'highest_score': row['Highest Score'],
+            'is_previous': gw == 29,
+            'is_current': gw == 30,
+            'is_next': gw == 31,
+            'ranked_count': 10000000,
+            'most_selected': 20,
+            'transfers_made': 100000,
+            'most_captained': 20,
+            'most_vice_captained': 16,
+            'bboost_played': 5000,
+            '3xc_played': 2000,
+            'freehit_played': 1000,
+            'wildcard_played': 3000,
+            'my_total_points': gw * 52 if gw <= 29 else pd.NA,
+            'my_rank': 120000 if gw <= 29 else pd.NA,
+            'my_overall_rank': 80000 if gw <= 29 else pd.NA,
+            'my_overall_percentile_rank': 99.2 if gw <= 29 else pd.NA,
+            'my_week_points': 55 if gw <= 29 else pd.NA,
+            'my_week_percentile_rank': 95.0 if gw <= 29 else pd.NA,
+            'my_bank': 0.5,
+            'my_value': 102.5,
+            'my_event_transfers': 1 if gw <= 29 else 0,
+            'my_event_transfers_cost': 0 if gw <= 29 else 0,
+            'my_points_on_bench': 4 if gw <= 29 else 0,
+            'my_used_chip_name': 'wildcard' if gw == 6 else pd.NA
+        })
+    return pd.DataFrame(events_list)
+
 def get_fpl_gameweek_summary():
     """
     Fetches the bootstrap-static data from the FPL API and extracts gameweek (event) summaries.
@@ -17,6 +91,9 @@ def get_fpl_gameweek_summary():
     Returns:
         pd.DataFrame: A pandas DataFrame containing details for each gameweek, or None if an error occurs.
     """
+    if check_offline_mode():
+        return _generate_offline_gameweek_summary()
+
     api_url = "https://fantasy.premierleague.com/api/bootstrap-static/"
 
     try:
@@ -83,6 +160,9 @@ def get_fpl_gameweek_data(fpl_id):
     Returns:
         A pandas DataFrame containing processed gameweek data.
     """
+    if check_offline_mode():
+        return _generate_offline_gameweek_data(fpl_id)
+
     # Fetch static data (events)
     url_static = "https://fantasy.premierleague.com/api/bootstrap-static/"
     response_static = requests.get(url_static)
@@ -157,6 +237,9 @@ def get_max_finished_gameweek():
     Returns:
         int or None: The maximum finished gameweek ID as an integer, or None if not found.
     """
+    if check_offline_mode():
+        return 29
+
     gameweek_summary_df = get_fpl_gameweek_summary()
     if gameweek_summary_df is None:
         print("Failed to fetch gameweek summary data.")
@@ -180,6 +263,9 @@ def get_current_gameweek():
     Returns:
         int or None: The maximum finished gameweek ID as an integer, or None if not found.
     """
+    if check_offline_mode():
+        return 30
+
     gameweek_summary_df = get_fpl_gameweek_summary()
     if gameweek_summary_df is None:
         print("Failed to fetch gameweek summary data.")
@@ -198,6 +284,10 @@ def get_my_player_ids(manager_id, gameweek=1):
     Fetches the list of player IDs for a specific FPL manager's team.
     This is used to get your initial squad.
     """
+    if check_offline_mode():
+        # High-fidelity realistic mock squad for testing (Raya, Pickford, Gabriel, Saliba, Gvardiol, Player 3, Player 9, Saka, Palmer, Gordon, Eze, Bowen, Watkins, Isak, Beto)
+        return [26, 22, 30, 50, 59, 3, 9, 36, 32, 42, 44, 456, 6, 41, 266]
+
     try:
         url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/event/{gameweek}/picks/"
         response = requests.get(url)
@@ -221,11 +311,225 @@ def get_my_player_ids(manager_id, gameweek=1):
         return []
 
 # --- CELL 12 ---
+def _generate_offline_pos_constraint_df():
+    return pd.DataFrame([
+        {'id': 1, 'singular_name_short': 'GKP', 'squad_select': 2, 'squad_min_play': 1, 'squad_max_play': 1},
+        {'id': 2, 'singular_name_short': 'DEF', 'squad_select': 5, 'squad_min_play': 3, 'squad_max_play': 5},
+        {'id': 3, 'singular_name_short': 'MID', 'squad_select': 5, 'squad_min_play': 2, 'squad_max_play': 5},
+        {'id': 4, 'singular_name_short': 'FWD', 'squad_select': 3, 'squad_min_play': 1, 'squad_max_play': 3},
+    ])
+
+def _generate_offline_team_df():
+    teams_list = [
+        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", 
+        "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich", 
+        "Leicester", "Liverpool", "Man City", "Man Utd", "Newcastle", 
+        "Nottingham Forest", "Southampton", "Spurs", "West Ham", "Wolves"
+    ]
+    teams_data = []
+    for idx, name in enumerate(teams_list, start=1):
+        teams_data.append({
+            'code': idx,
+            'id': idx,
+            'name': name,
+            'position': 0,
+            'short_name': name[:3].upper() if len(name) >= 3 else name.upper(),
+            'strength': 3 + (idx % 3),
+            'strength_overall_home': 1100 + (idx % 3) * 100,
+            'strength_overall_away': 1100 + (idx % 3) * 80,
+            'strength_attack_home': 1100 + (idx % 3) * 90,
+            'strength_attack_away': 1100 + (idx % 3) * 70,
+            'strength_defence_home': 1100 + (idx % 3) * 80,
+            'strength_defence_away': 1100 + (idx % 3) * 60,
+            'pulse_id': idx
+        })
+    return pd.DataFrame(teams_data)
+
+def _generate_offline_fixture_df():
+    fixtures_list = []
+    fixture_id = 1
+    for gw in range(30, 39):
+        # Deterministically pair teams: match i with (i + gw) % 20
+        # This keeps pairings valid across gameweeks
+        matched = set()
+        for i in range(1, 21):
+            if i in matched:
+                continue
+            opponent = ((i - 1 + gw) % 20) + 1
+            if opponent == i or opponent in matched:
+                # Fallback matching
+                for k in range(1, 21):
+                    if k != i and k not in matched:
+                        opponent = k
+                        break
+            matched.add(i)
+            matched.add(opponent)
+            
+            fixtures_list.append({
+                'gameweek': gw,
+                'id': fixture_id,
+                'kickoff_time': f"2026-05-{gw:02d}T15:00:00Z",
+                'team': i,
+                'opponent': opponent,
+                'is_home': True,
+                'team_score': pd.NA,
+                'opponent_score': pd.NA,
+                'finished': False,
+                'stats': []
+            })
+            fixtures_list.append({
+                'gameweek': gw,
+                'id': fixture_id,
+                'kickoff_time': f"2026-05-{gw:02d}T15:00:00Z",
+                'team': opponent,
+                'opponent': i,
+                'is_home': False,
+                'team_score': pd.NA,
+                'opponent_score': pd.NA,
+                'finished': False,
+                'stats': []
+            })
+            fixture_id += 1
+            
+    return pd.DataFrame(fixtures_list).reset_index(drop=True)
+
+def _generate_offline_players_df():
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    parquet_path = os.path.join(base_dir, 'assets', 'raw_history_cache.parquet')
+    
+    if os.path.exists(parquet_path):
+        df_hist = pd.read_parquet(parquet_path)
+        unique_ids = sorted(df_hist['id_player'].unique())
+    else:
+        unique_ids = list(range(1, 101))
+        df_hist = pd.DataFrame(columns=['id_player', 'minutes', 'goals_scored', 'clean_sheets', 'saves', 'actual_points'])
+        
+    famous_players = {
+        20: ("Haaland", "FWD", "Man City", 15.0),
+        16: ("Salah", "MID", "Liverpool", 12.5),
+        36: ("Saka", "MID", "Arsenal", 10.0),
+        32: ("Palmer", "MID", "Chelsea", 10.5),
+        6: ("Watkins", "FWD", "Aston Villa", 9.0),
+        54: ("Son", "MID", "Spurs", 10.0),
+        47: ("Foden", "MID", "Man City", 9.5),
+        30: ("Gabriel", "DEF", "Arsenal", 6.0),
+        50: ("Saliba", "DEF", "Arsenal", 6.0),
+        26: ("Raya", "GKP", "Arsenal", 5.5),
+        266: ("Beto", "FWD", "Everton", 5.0),
+        8: ("Alexander-Arnold", "DEF", "Liverpool", 7.5),
+        22: ("Pickford", "GKP", "Everton", 5.0),
+        59: ("Gvardiol", "DEF", "Man City", 6.0),
+        456: ("Bowen", "MID", "West Ham", 7.5),
+        42: ("Gordon", "MID", "Newcastle", 7.5),
+        41: ("Isak", "FWD", "Newcastle", 8.5),
+        48: ("Solanke", "FWD", "Spurs", 7.5),
+        44: ("Eze", "MID", "Palace", 7.0),
+        40: ("Bruno Fernandes", "MID", "Man Utd", 8.5)
+    }
+    
+    teams_list = [
+        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", 
+        "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich", 
+        "Leicester", "Liverpool", "Man City", "Man Utd", "Newcastle", 
+        "Nottingham Forest", "Southampton", "Spurs", "West Ham", "Wolves"
+    ]
+    
+    players_data = []
+    for pid in unique_ids:
+        p_hist = df_hist[df_hist['id_player'] == pid]
+        hist_minutes = p_hist['minutes'].sum() if not p_hist.empty else 0
+        hist_goals = p_hist['goals_scored'].sum() if not p_hist.empty else 0
+        hist_saves = p_hist['saves'].sum() if not p_hist.empty else 0
+        hist_cs = p_hist['clean_sheets'].sum() if not p_hist.empty else 0
+        hist_points = p_hist['actual_points'].sum() if not p_hist.empty else 0
+        hist_starts = p_hist[p_hist['minutes'] >= 60].shape[0] if not p_hist.empty else 0
+        
+        hist_goals_conceded = p_hist['goals_conceded'].sum() if ('goals_conceded' in p_hist.columns) else 0
+        hist_expected_goals_conceded = p_hist['expected_goals_conceded'].sum() if ('expected_goals_conceded' in p_hist.columns) else 0.0
+        hist_def_contrib = p_hist['defensive_contribution'].sum() if ('defensive_contribution' in p_hist.columns) else 0.0
+        
+        if pid in famous_players:
+            name, pos, team, cost = famous_players[pid]
+        else:
+            name = f"Player {pid}"
+            if hist_saves > 0:
+                pos = "GKP"
+            else:
+                pos_idx = pid % 3
+                pos = "DEF" if pos_idx == 0 else ("MID" if pos_idx == 1 else "FWD")
+            
+            team = teams_list[pid % 20]
+            if pos == "GKP":
+                cost = 4.0 + (pid % 4) * 0.5
+            elif pos == "DEF":
+                cost = 4.0 + (pid % 5) * 0.5
+            elif pos == "MID":
+                cost = 4.5 + (pid % 12) * 0.5
+            else:
+                cost = 4.5 + (pid % 16) * 0.5
+                
+        players_data.append({
+            'id': pid,
+            'now_cost': cost,
+            'selected_by_percent': round(1.0 + (pid % 30) * 1.3, 1),
+            'team': (pid % 20) + 1,
+            'web_name': name,
+            'position': pos,
+            'team_name': team,
+            'game_played': max(1, p_hist.shape[0] if not p_hist.empty else 1),
+            'total_points': hist_points,
+            'points_per_game': round(hist_points / max(1, p_hist.shape[0]), 2) if not p_hist.empty else 0,
+            'form': round((pid % 10) * 0.7, 1),
+            'starts_per_90': round(hist_starts / max(1, hist_minutes / 90.0), 2) if hist_minutes > 0 else 0,
+            'starts': hist_starts,
+            'start_per_gameplayed': round(hist_starts / max(1, p_hist.shape[0]), 2) if not p_hist.empty else 0,
+            'start_share_total_game': round(hist_starts / 29.0, 2),
+            'chance_of_playing_this_round': 100,
+            'chance_of_playing_next_round': 100,
+            'minutes_per_game': round(hist_minutes / max(1, p_hist.shape[0]), 1) if not p_hist.empty else 0,
+            'minutes': hist_minutes,
+            'finishing_factor': 1.0,
+            'protective_factor': 1.0,
+            'expected_goals': p_hist['expected_goals'].sum() if ('expected_goals' in p_hist.columns) else 0.0,
+            'goals_scored': hist_goals,
+            'expected_assists': p_hist['expected_assists'].sum() if ('expected_assists' in p_hist.columns) else 0.0,
+            'assists': p_hist['assists'].sum() if ('assists' in p_hist.columns) else 0,
+            'goals_conceded': hist_goals_conceded,
+            'expected_goals_conceded': hist_expected_goals_conceded,
+            'clean_sheets': hist_cs,
+            'total_non_minutes_points': hist_points - (hist_minutes // 45),
+            'ict_index': round(1.0 + (pid % 100) * 0.1, 1),
+            'creativity': p_hist['creativity'].sum() if ('creativity' in p_hist.columns) else 0.0,
+            'threat': p_hist['threat'].sum() if ('threat' in p_hist.columns) else 0.0,
+            'bps_per_90': round((p_hist['bps'].sum() if 'bps' in p_hist.columns else 0.0) / max(1, hist_minutes / 90.0), 2) if hist_minutes > 0 else 0.0,
+            'bonus_per_90': round((p_hist['bonus'].sum() if 'bonus' in p_hist.columns else 0.0) / max(1, hist_minutes / 90.0), 2) if hist_minutes > 0 else 0.0,
+            'yellow_cards_per_90': 0.1,
+            'red_cards_index_per_90': 0.0,
+            'saves_per_90': round(hist_saves / max(1, hist_minutes / 90.0), 2) if hist_minutes > 0 else 0.0,
+            'influence_per_90': 10.0,
+            'creativity_per_90': 10.0,
+            'threat_per_90': 10.0,
+            'ict_index_per_90': 10.0,
+            'expected_goals_per_90': 0.1,
+            'expected_assists_per_90': 0.1,
+            'expected_goal_involvements_per_90': 0.2,
+            'expected_goals_conceded_per_90': 1.0,
+            'goals_conceded_per_90': 1.0,
+            'clean_sheets_per_90': 0.3,
+            'defensive_contribution_per_90': round(hist_def_contrib / max(1, hist_minutes / 90.0), 2) if hist_minutes > 0 else 0.0
+        })
+        
+    return pd.DataFrame(players_data)
+
+# --- CELL 12 ---
 def get_current_players_df():
     """
     Fetches current player data and adds average minutes from the last 2 finished Gameweeks
     using the optimized 'live' endpoint to minimize API calls.
     """
+    if check_offline_mode():
+        return _generate_offline_players_df()
+
     # 1. Fetch Base Data (Bootstrap Static)
     base_url = "https://fantasy.premierleague.com/api/bootstrap-static/"
     response = requests.get(base_url)
@@ -342,6 +646,9 @@ def get_current_players_df():
 
 # --- CELL 13 ---
 def get_pos_constraint_df():
+    if check_offline_mode():
+        return _generate_offline_pos_constraint_df()
+
     url = "https://fantasy.premierleague.com/api/bootstrap-static/"
     response = requests.get(url)
     response.raise_for_status()
@@ -360,6 +667,9 @@ def get_pos_constraint_df():
 
 # --- CELL 14 ---
 def get_team_df():
+    if check_offline_mode():
+        return _generate_offline_team_df()
+
     url = "https://fantasy.premierleague.com/api/bootstrap-static/"
     response = requests.get(url)
     response.raise_for_status()
@@ -374,6 +684,9 @@ def get_team_df():
 
 # --- CELL 15 ---
 def get_fixture_df():
+    if check_offline_mode():
+        return _generate_offline_fixture_df()
+
     url = "https://fantasy.premierleague.com/api/fixtures/"
     response = requests.get(url)
     response.raise_for_status()
@@ -571,6 +884,13 @@ async def _fetch_all_async(active_player_ids):
 async def fetch_raw_history_cache(active_player_ids, use_cache=True, cache_timeout_hours=12):
     """Fetch raw match history with caching support."""
     cache_file = "assets/raw_history_cache.parquet"
+
+    if check_offline_mode():
+        if os.path.exists(cache_file):
+            print(f"✦ [Offline Mode] Loading raw match history from {cache_file} fallback cache... ✦")
+            return pd.read_parquet(cache_file)
+        else:
+            print("WARNING: Offline mode active but raw_history_cache.parquet not found in assets/!")
 
     if use_cache and os.path.exists(cache_file):
         file_age_seconds = time.time() - os.path.getmtime(cache_file)
