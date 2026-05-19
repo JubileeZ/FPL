@@ -13,7 +13,7 @@ import pulp
 nest_asyncio.apply()
 
 # Core fpl_engine imports
-from fpl_engine.config import MY_FPL_ID, get_season_params, load_tuned_params
+from fpl_engine.config import MY_FPL_ID, get_season_params, load_tuned_params, get_advanced_model_config
 from fpl_engine.data import (
     get_current_players_df, fetch_raw_history_cache,
     get_team_df, get_pos_constraint_df,
@@ -24,13 +24,16 @@ from fpl_engine.data import (
 from fpl_engine.features import (
     compute_rolling_team_ratings, blend_team_ratings,
     get_fixture_players_stats_df, compute_global_z_distributions,
+    _fit_garch_minutes_volatility,
 )
 from fpl_engine.scoring import (
     _fit_bonus_multinomial, _fit_regression_params,
     _calculate_performance_indices, create_optimized_custom_score,
+    _estimate_component_correlation,
 )
 from fpl_engine.solver import plan_sequential_transfers
 from fpl_engine.tuning import auto_tune_if_needed
+from fpl_engine.scenarios import generate_scenario_tensor
 
 # =========================================================================
 # PAGE SETUP & PREMIUM STYLING
@@ -157,7 +160,7 @@ st.markdown("""
 # =========================================================================
 # ASYNC DATA FETCHING & PIPELINE ENGINE
 # =========================================================================
-async def run_fpl_pipeline(manager_id, force_retune=False):
+async def run_fpl_pipeline(manager_id, force_retune=False, advanced_model_overrides=None):
     """Executes the full FPL projection calculation pipeline asynchronously."""
     status_box = st.empty()
     
@@ -239,10 +242,26 @@ async def run_fpl_pipeline(manager_id, force_retune=False):
     bonus_model = _fit_bonus_multinomial(raw_history_df)
     params.update(reg_params)
 
+    if advanced_model_overrides is not None:
+        adv_cfg = advanced_model_overrides
+    else:
+        adv_cfg = get_advanced_model_config()
+
+    # Phase 1: Covariance & GARCH minutes
+    component_corr = None
+    if adv_cfg.get("enable_covariance_ceiling"):
+        component_corr = _estimate_component_correlation(raw_history_df)
+        
+    garch_vol_df = None
+    if adv_cfg.get("enable_garch_minutes"):
+        garch_vol_df = _fit_garch_minutes_volatility(raw_history_df)
+
     fixture_player_df = _calculate_performance_indices(
         fixture_player_df,
         params,
-        bonus_model=bonus_model
+        bonus_model=bonus_model,
+        component_corr=component_corr,
+        garch_vol_df=garch_vol_df
     )
 
     # 8. Aggregating to per-GW Projections
@@ -269,6 +288,28 @@ async def run_fpl_pipeline(manager_id, force_retune=False):
 
     gw_projection_df = fixture_player_df.groupby(valid_grouping).agg(agg_dict).reset_index()
 
+    # Phase 2: Scenario Generation & Downside Stat Mapping
+    if adv_cfg.get("enable_scenarios"):
+        n_scenarios = adv_cfg.get("scenario_count", 5000)
+        scenario_tensor = generate_scenario_tensor(
+            gw_projection_df=gw_projection_df,
+            component_corr=component_corr if component_corr else {"corr_matrix": np.eye(6)},
+            n_scenarios=n_scenarios
+        )
+        
+        # Collapse scenarios to stats and merge
+        p10 = np.quantile(scenario_tensor, 0.10, axis=2)
+        
+        # Map back to gw_projection_df
+        players = gw_projection_df['id_player'].unique()
+        gameweeks = sorted(gw_projection_df['gameweek'].unique())
+        player_idx_map = {pid: i for i, pid in enumerate(players)}
+        
+        gw_projection_df['sc_p10'] = gw_projection_df.apply(
+            lambda row: p10[player_idx_map[row['id_player']], gameweeks.index(row['gameweek'])],
+            axis=1
+        )
+
     # Get Manager's Gameweek data & dynamic weights
     try:
         fpl_gameweek_data = get_fpl_gameweek_data(manager_id)
@@ -294,7 +335,8 @@ async def run_fpl_pipeline(manager_id, force_retune=False):
         'data_gameweek': data_gameweek,
         'weights': weights,
         'params': params,
-        'players_df': players_df
+        'players_df': players_df,
+        'active_adv_cfg': adv_cfg
     }
 
 
@@ -307,6 +349,12 @@ if 'pipeline_data' not in st.session_state:
 if 'manager_id' not in st.session_state:
     st.session_state['manager_id'] = MY_FPL_ID
 
+if 'advanced_model_overrides' not in st.session_state:
+    st.session_state['advanced_model_overrides'] = None
+
+if 'active_adv_cfg' not in st.session_state:
+    st.session_state['active_adv_cfg'] = None
+
 # Trigger data loading if empty
 if st.session_state['pipeline_data'] is None:
     with st.spinner("Fetching official FPL APIs and bootstrapping models..."):
@@ -314,7 +362,7 @@ if st.session_state['pipeline_data'] is None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             st.session_state['pipeline_data'] = loop.run_until_complete(
-                run_fpl_pipeline(st.session_state['manager_id'])
+                run_fpl_pipeline(st.session_state['manager_id'], advanced_model_overrides=st.session_state['advanced_model_overrides'])
             )
         except Exception as e:
             st.error(f"Failed to fetch FPL API data: {e}. Running with cached/mock profile.")
@@ -325,7 +373,8 @@ if st.session_state['pipeline_data'] is None:
                 'data_gameweek': 29,
                 'weights': {'diff_weight': 0.13, 'upside_weight': 0.12, 'mode': 'OFFLINE FALLBACK', 'rank_pct': 50.0},
                 'params': {},
-                'players_df': pd.DataFrame()
+                'players_df': pd.DataFrame(),
+                'active_adv_cfg': get_advanced_model_config()
             }
 
 pipe_data = st.session_state['pipeline_data']
@@ -333,6 +382,7 @@ current_gw = pipe_data['current_gw']
 players_df = pipe_data['players_df']
 gw_projection_df = pipe_data['gw_projection_df']
 default_weights = pipe_data['weights']
+st.session_state['active_adv_cfg'] = pipe_data.get('active_adv_cfg', get_advanced_model_config())
 
 # Pre-populate active player dictionaries for Locked/Banned Multi-selects
 player_select_options = []
@@ -388,6 +438,44 @@ banned_players_selected = st.sidebar.multiselect("Ban Players from Solver", opti
 fixed_player_ids = [player_id_map[p] for p in fixed_players_selected if p in player_id_map]
 banned_player_ids = [player_id_map[p] for p in banned_players_selected if p in player_id_map]
 
+# 5. Advanced Model Options
+st.sidebar.markdown("---")
+with st.sidebar.expander("🔬 Advanced Model Config", expanded=False):
+    st.markdown("<small>Configure advanced downside risk & statistical settings.</small>", unsafe_allow_html=True)
+    
+    default_adv_cfg = st.session_state.get('active_adv_cfg') or get_advanced_model_config()
+    
+    adv_cov = st.checkbox("Enable Covariance Ceiling", value=default_adv_cfg.get("enable_covariance_ceiling", True), help="Enables component correlations to scale down aggregate squad variance.")
+    adv_garch = st.checkbox("Enable GARCH Minutes", value=default_adv_cfg.get("enable_garch_minutes", True), help="Applies generalized autoregressive conditional heteroskedasticity to minutes projections.")
+    adv_scenarios = st.checkbox("Enable Scenarios", value=default_adv_cfg.get("enable_scenarios", True), help="Generates multivariate scenario distributions for downside tail risk estimation.")
+    
+    adv_cvar_w = st.slider("CVaR Weight (Downside)", min_value=0.0, max_value=0.50, value=default_adv_cfg.get("cvar_weight", 0.15), step=0.01, help="Weight given to CVaR (Conditional Value at Risk) in solver optimization.")
+    adv_sc_count = st.number_input("Scenario Count", min_value=100, max_value=10000, value=int(default_adv_cfg.get("scenario_count", 5000)), step=500, help="Number of Monte Carlo simulations to generate.")
+    
+    # Store overridden advanced config in session state
+    st.session_state['advanced_model_overrides'] = {
+        "enable_covariance_ceiling": adv_cov,
+        "enable_garch_minutes": adv_garch,
+        "enable_scenarios": adv_scenarios,
+        "cvar_weight": adv_cvar_w,
+        "scenario_count": adv_sc_count,
+        "cvar_alpha": default_adv_cfg.get("cvar_alpha", 0.10),
+        "column_gen_top_k": default_adv_cfg.get("column_gen_top_k", 80)
+    }
+    
+    # Check if overrides differ from currently calculated config
+    active_adv_cfg = st.session_state.get('active_adv_cfg') or get_advanced_model_config()
+    has_changes = False
+    for k in ["enable_covariance_ceiling", "enable_garch_minutes", "enable_scenarios", "scenario_count"]:
+        if active_adv_cfg.get(k) != st.session_state['advanced_model_overrides'][k]:
+            has_changes = True
+            
+    if has_changes:
+        st.warning("⚠️ Pending advanced changes!")
+        if st.button("🔄 Apply Advanced Config", use_container_width=True):
+            st.session_state['pipeline_data'] = None
+            st.rerun()
+
 st.sidebar.markdown("---")
 force_reoptimize = st.sidebar.button("⚡ Force Optuna Re-tune")
 if force_reoptimize:
@@ -395,7 +483,7 @@ if force_reoptimize:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         st.session_state['pipeline_data'] = loop.run_until_complete(
-            run_fpl_pipeline(manager_id, force_retune=True)
+            run_fpl_pipeline(manager_id, force_retune=True, advanced_model_overrides=st.session_state['advanced_model_overrides'])
         )
         st.rerun()
 
@@ -487,6 +575,7 @@ with tab_transfers:
             # Capture Pulp prints to stdout to render in streamlit
             stdout_buffer = io.StringIO()
             with contextlib.redirect_stdout(stdout_buffer):
+                cvar_weight = adv_cvar_w if 'adv_cvar_w' in locals() else 0.15
                 solver_results = plan_sequential_transfers(
                     gw_projection_df=gw_projection_df,
                     current_team_ids=my_current_team_ids,
@@ -501,6 +590,7 @@ with tab_transfers:
                     captain_column='ceiling_score',
                     fixed_player_dict=solver_fixed,
                     banned_player_dict=solver_banned,
+                    cvar_weight=cvar_weight,
                     return_model=True
                 )
             
