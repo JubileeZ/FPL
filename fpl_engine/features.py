@@ -424,8 +424,10 @@ def compute_walkforward_minutes_features(
     ema_alpha: float = 0.40,
 ) -> pd.DataFrame:
 
-    # 1. Isolate the IDs of fixtures that have actually finished
-    finished_fixtures = fixture_player_df[fixture_player_df['finished'] == True]['id_fixture'].unique()
+    # 1. Isolate the IDs of fixtures that have actually finished (union with raw_history_df for offline sandbox support)
+    finished_fixtures = set(fixture_player_df[fixture_player_df['finished'] == True]['id_fixture'].unique())
+    if 'id_fixture' in raw_history_df.columns:
+        finished_fixtures = finished_fixtures | set(raw_history_df['id_fixture'].unique())
 
     # 2. Filter raw history: drop duplicates, nulls, AND unplayed games
     hist = (

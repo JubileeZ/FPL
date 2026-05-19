@@ -849,6 +849,7 @@ def _fetch_player_sync(p_id):
             'threat': float(match['threat']),
             'creativity': float(match['creativity']),
             'goals_scored': match['goals_scored'],
+            'assists': match['assists'],
             'goals_conceded': match['goals_conceded'],
             'saves': match['saves'],
             'clean_sheets': match['clean_sheets'],

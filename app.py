@@ -1,3 +1,85 @@
+# =========================================================================
+# PYTHON 3.14 COMPATIBILITY MONKEY-PATCH (must be at absolute top of file)
+# =========================================================================
+import asyncio
+import asyncio.timeouts
+from asyncio.timeouts import Timeout, _State
+
+# 1. Patch asyncio.timeouts.Timeout.__aenter__ to allow usage outside of Task
+class DummyTask:
+    def cancelling(self):
+        return 0
+    def cancel(self, *args, **kwargs):
+        return False
+    def uncancel(self):
+        return 0
+
+_dummy_task = DummyTask()
+
+_original_aenter = Timeout.__aenter__
+
+async def patched_aenter(self):
+    if self._state is not _State.CREATED:
+        raise RuntimeError("Timeout has already been entered")
+    task = asyncio.current_task()
+    if task is None:
+        task = _dummy_task
+    self._state = _State.ENTERED
+    self._task = task
+    self._cancelling = self._task.cancelling()
+    self.reschedule(self._when)
+    return self
+
+Timeout.__aenter__ = patched_aenter
+
+# 2. Patch anyio to gracefully support None tasks in WeakKeyDictionary
+try:
+    import anyio._backends._asyncio as anyio_asyncio
+    
+    class SafeWeakKeyDictionary:
+        def __init__(self, original):
+            self._original = original
+        def get(self, key, default=None):
+            if key is None:
+                return default
+            try:
+                return self._original.get(key, default)
+            except TypeError:
+                return default
+        def __getitem__(self, key):
+            if key is None:
+                raise KeyError(key)
+            try:
+                return self._original[key]
+            except TypeError:
+                raise KeyError(key)
+        def __setitem__(self, key, value):
+            if key is None:
+                return
+            try:
+                self._original[key] = value
+            except TypeError:
+                pass
+        def __delitem__(self, key):
+            if key is None:
+                return
+            try:
+                del self._original[key]
+            except (TypeError, KeyError):
+                pass
+        def __contains__(self, key):
+            if key is None:
+                return False
+            try:
+                return key in self._original
+            except TypeError:
+                return False
+
+    anyio_asyncio._task_states = SafeWeakKeyDictionary(anyio_asyncio._task_states)
+except ImportError:
+    pass
+# =========================================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np

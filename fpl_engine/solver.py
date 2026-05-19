@@ -121,8 +121,9 @@ def _prefilter_candidate_pool(
     Reduces the player pool to a competitive subset to speed up MILP resolution.
     Always preserves current squad members.
     """
-    # 1. Start with current squad
-    selected_ids = set(current_team_ids)
+    # 1. Start with current squad (filtering out any players that have no representation in horizon_df)
+    valid_current_ids = [p for p in current_team_ids if p in horizon_df['id_player'].unique()]
+    selected_ids = set(valid_current_ids)
     
     # 2. Get top performers per position based on horizon-summed score
     horizon_totals = horizon_df.groupby(['id_player', 'position'])[objective_column].sum().reset_index()

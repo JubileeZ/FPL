@@ -187,6 +187,9 @@ def _estimate_component_correlation(
     if df.empty:
         return {"corr_matrix": np.eye(6), "component_order": [], "n_observations": 0}
     
+    if 'assists' not in df.columns:
+        df['assists'] = df['expected_assists'].round().fillna(0).astype(int)
+
     # Define components (pts-weighted)
     components = {
         'goals_pts': df['goals_scored'] * 4,
